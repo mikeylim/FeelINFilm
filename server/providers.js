@@ -4,7 +4,7 @@ import { cacheFor, logMetric, providerJson, RequestError } from './upstream.js'
 const token = (process.env.TMDB_READ_ACCESS_TOKEN || process.env.TMDB_ACCESS_TOKEN)?.trim()
 const tmdbKey = process.env.TMDB_API_KEY?.trim()
 export const geminiKey = process.env.GEMINI_API_KEY?.trim()
-export const geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite'
+export const geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash'
 
 export const providers = {
   tmdb: Boolean(token || tmdbKey),

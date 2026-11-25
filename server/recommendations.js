@@ -3,7 +3,7 @@ import { geminiKey, geminiModel, normalize, requireTmdb, resolveFilm, yearOf } f
 import { withRatingsFor } from './ratings.js'
 import { providerJson, RequestError } from './upstream.js'
 
-const fallbackModel = 'gemini-3.1-flash-lite'
+const fallbackModel = 'gemini-3.5-flash-lite'
 const preferredTimeout = 16_000
 const flashLiteTimeout = 24_000
 const generationBudget = 40_000
@@ -140,7 +140,7 @@ function matchesRatings(movie, filters) {
 
 async function askGemini(model, contents, signal, timeout) {
   const generationConfig = { responseMimeType: 'application/json', responseJsonSchema: recommendationSchema, maxOutputTokens: 4500 }
-  const thinkingLevel = { 'gemini-3.1-flash-lite': 'MINIMAL', 'gemini-3.8-flash': 'LOW' }[model]
+  const thinkingLevel = { [fallbackModel]: 'MINIMAL', 'gemini-3.8-flash': 'LOW' }[model]
   if (thinkingLevel) generationConfig.thinkingConfig = { thinkingLevel }
   const result = await providerJson(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
