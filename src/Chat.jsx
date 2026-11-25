@@ -102,6 +102,7 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
 }
 
 const progress = {
+  backup: 'Taking another pass at your recommendations',
   matching: 'Verifying film matches',
   ratings: 'Loading film ratings'
 }

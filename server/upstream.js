@@ -26,26 +26,30 @@ export function cacheFor(key, duration, load) {
 }
 
 export function logMetric(event, attributes) {
-  if (process.env.PROVIDER_METRICS === '1' || attributes.status === 429) {
+  if (process.env.PROVIDER_METRICS === '1' || [429, 504].includes(attributes.status)) {
     console.info(JSON.stringify({ event, ...attributes }))
   }
 }
 
-export async function providerJson(url, options, provider, timeout = 8000) {
+export async function providerJson(url, options, provider, timeout = 8000, metricFields = {}) {
   const started = performance.now()
   const deadline = AbortSignal.timeout(timeout)
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline
-  let response
+  let status
+  let data
   try {
-    response = await fetch(url, { ...options, signal })
+    const response = await fetch(url, { ...options, signal })
+    status = response.status
+    if (response.ok) data = await response.json()
   } catch {
-    logMetric('provider_request', { provider, status: deadline.aborted ? 504 : 0, durationMs: Math.round(performance.now() - started) })
     options.signal?.throwIfAborted()
-    const message = deadline.aborted ? `${provider} took too long to respond. Try again.` : `${provider} is unreachable right now. Try again shortly.`
-    throw new RequestError(message, deadline.aborted ? 504 : 502)
+    const outcome = deadline.aborted ? 504 : status === undefined ? 0 : 502
+    logMetric('provider_request', { ...metricFields, provider, status: outcome, durationMs: Math.round(performance.now() - started) })
+    if (deadline.aborted) throw new RequestError(`${provider} took too long to respond. Try again.`, 504)
+    if (status !== undefined) throw new RequestError(`${provider} returned an unreadable response.`, 502)
+    throw new RequestError(`${provider} is unreachable right now. Try again shortly.`, 502, 0)
   }
-  const status = response.status
-  logMetric('provider_request', { provider, status, durationMs: Math.round(performance.now() - started) })
+  logMetric('provider_request', { ...metricFields, provider, status, durationMs: Math.round(performance.now() - started) })
   if (status === 429) throw new RequestError(`${provider} reached its request limit. Try again shortly.`, 429, status)
   if (status === 503 || status === 504) throw new RequestError(`${provider} is temporarily busy. Try again shortly.`, 503, status)
   if (status === 401 || status === 403) {
@@ -55,11 +59,6 @@ export async function providerJson(url, options, provider, timeout = 8000) {
   if (status === 404 && provider === 'Gemini') {
     throw new RequestError('The configured Gemini model is unavailable. Check GEMINI_MODEL in .env.', 503, status)
   }
-  if (!response.ok) throw new RequestError(`${provider} couldn’t complete the request. Try again shortly.`, 502, status)
-  try {
-    return await response.json()
-  } catch {
-    options.signal?.throwIfAborted()
-    throw new RequestError(`${provider} returned an unreadable response.`, 502)
-  }
+  if (status < 200 || status >= 300) throw new RequestError(`${provider} couldn’t complete the request. Try again shortly.`, 502, status)
+  return data
 }

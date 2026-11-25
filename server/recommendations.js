@@ -1,8 +1,12 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import { geminiKey, geminiModel, normalize, requireTmdb, resolveFilm, yearOf } from './providers.js'
 import { withRatingsFor } from './ratings.js'
 import { providerJson, RequestError } from './upstream.js'
 
 const fallbackModel = 'gemini-3.1-flash-lite'
+const preferredTimeout = 16_000
+const flashLiteTimeout = 24_000
+const generationBudget = 40_000
 let retryPreferredAfter = 0
 
 export function requireRecommendations() {
@@ -134,7 +138,7 @@ function matchesRatings(movie, filters) {
     })
 }
 
-async function askGemini(model, contents, signal) {
+async function askGemini(model, contents, signal, timeout) {
   const generationConfig = { responseMimeType: 'application/json', responseJsonSchema: recommendationSchema, maxOutputTokens: 4500 }
   const thinkingLevel = { 'gemini-3.1-flash-lite': 'MINIMAL', 'gemini-3.8-flash': 'LOW' }[model]
   if (thinkingLevel) generationConfig.thinkingConfig = { thinkingLevel }
@@ -144,7 +148,7 @@ async function askGemini(model, contents, signal) {
       signal, method: 'POST',
       headers: { 'x-goog-api-key': geminiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: instructions }] }, contents, generationConfig })
-    }, 'Gemini', model === fallbackModel ? 16_000 : 7000
+    }, 'Gemini', timeout, { model }
   )
   try {
     const parts = result.candidates?.[0]?.content?.parts || []
@@ -153,6 +157,28 @@ async function askGemini(model, contents, signal) {
     return reply
   } catch {
     throw new RequestError('Gemini didn’t return a complete reply. Try again or shorten the request.', 502)
+  }
+}
+
+async function generateRecommendation(contents, emit, signal) {
+  const model = Date.now() < retryPreferredAfter ? fallbackModel : geminiModel
+  const deadline = performance.now() + generationBudget
+  try {
+    const timeout = model === fallbackModel ? flashLiteTimeout : preferredTimeout
+    return { model, reply: await askGemini(model, contents, signal, timeout) }
+  } catch (error) {
+    signal?.throwIfAborted()
+    const canRetry = error.status === 504 || [0, 500, 502, 503, 504].includes(error.upstreamStatus)
+    const canSwitchOnQuota = error.status === 429 && model !== fallbackModel
+    if (!canRetry && !canSwitchOnQuota) throw error
+
+    if (model !== fallbackModel) retryPreferredAfter = Date.now() + 60_000
+    emit({ type: 'stage', stage: 'backup' })
+    await delay(500 + Math.floor(Math.random() * 500), undefined, { signal })
+    const remaining = Math.floor(deadline - performance.now())
+    if (remaining <= 0) throw error
+    const reply = await askGemini(fallbackModel, contents, signal, Math.min(flashLiteTimeout, remaining))
+    return { model: fallbackModel, reply }
   }
 }
 
@@ -165,17 +191,7 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   emit({ type: 'stage', stage: 'gemini' })
   const carriedFilters = filterSet(options.filters)
   const contents = chatContents(messages, excluded, carriedFilters, options.lockFilters)
-  let model = Date.now() < retryPreferredAfter ? fallbackModel : geminiModel
-  let reply
-  try {
-    reply = await askGemini(model, contents, signal)
-  } catch (error) {
-    if (model === fallbackModel || (error.status !== 504 && ![429, 500, 503, 504].includes(error.upstreamStatus))) throw error
-    retryPreferredAfter = Date.now() + 60_000
-    model = fallbackModel
-    emit({ type: 'stage', stage: 'backup' })
-    reply = await askGemini(model, contents, signal)
-  }
+  const { model, reply } = await generateRecommendation(contents, emit, signal)
   signal?.throwIfAborted()
 
   const filters = options.lockFilters ? carriedFilters : filterSet(reply.filters)
@@ -190,7 +206,7 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   if (!candidates.length) return { ...base, text: text || 'What kind of movie are you in the mood for?', movies: [] }
 
   emit({ type: 'stage', stage: 'matching' })
-  const results = await Promise.allSettled(candidates.map(candidate => resolveFilm(candidate)))
+  const results = await Promise.allSettled(candidates.map(candidate => resolveFilm(candidate, signal)))
   signal?.throwIfAborted()
   const failures = results.filter(result => result.status === 'rejected')
   if (failures.length === results.length) throw failures[0].reason

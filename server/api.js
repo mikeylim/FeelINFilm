@@ -66,13 +66,13 @@ const streamType = 'application/x-ndjson'
 const eventLine = event => JSON.stringify(event) + '\n'
 
 async function replyWith(request, response, load) {
-  if (!(request.headers.accept || '').includes(streamType)) {
-    return sendJson(response, 200, await load())
-  }
-
   const cancel = new AbortController()
   response.once('close', () => cancel.abort())
   request.once('error', () => cancel.abort())
+  if (!(request.headers.accept || '').includes(streamType)) {
+    return sendJson(response, 200, await load(undefined, cancel.signal))
+  }
+
   response.writeHead(200, {
     'Content-Type': `${streamType}; charset=utf-8`, 'Cache-Control': 'no-store, no-transform',
     'X-Content-Type-Options': 'nosniff', 'X-Accel-Buffering': 'no'
@@ -81,6 +81,25 @@ async function replyWith(request, response, load) {
   const emit = event => { if (!response.destroyed) response.write(eventLine(event)) }
   const result = await load(emit, cancel.signal)
   if (!response.destroyed) response.end(eventLine({ type: 'done', result }))
+}
+
+async function withinChatDeadline(load, signal) {
+  const deadline = new AbortController()
+  const chatSignal = AbortSignal.any([signal, deadline.signal])
+  let timer
+  const timedOut = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new RequestError('Your recommendations are taking longer than usual. Try again shortly.', 504)
+      deadline.abort(error)
+      reject(error)
+    }, 54_000)
+    timer.unref()
+  })
+  try {
+    return await Promise.race([timedOut, load(chatSignal)])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function handleApi(request, response) {
@@ -120,7 +139,8 @@ export async function handleApi(request, response) {
         Number.isSafeInteger(movie?.id) && typeof movie.title === 'string' && movie.title.length <= 180) : []
       const options = { filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria) }
       requireRecommendations()
-      return await replyWith(request, response, (emit, signal) => liveRecommendations(data.messages, excluded, emit, signal, options))
+      return await replyWith(request, response, (emit, signal) =>
+        withinChatDeadline(chatSignal => liveRecommendations(data.messages, excluded, emit, chatSignal, options), signal))
     }
     throw new RequestError('This API endpoint could not be found.', 404)
   } catch (error) {

@@ -154,7 +154,7 @@ export async function liveDetails(id) {
   return { ...movie, similar }
 }
 
-export async function resolveFilm(candidate) {
+export async function resolveFilm(candidate, signal) {
   const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
   const original = typeof candidate.originalTitle === 'string' ? candidate.originalTitle.trim() : ''
   const year = candidate.year
@@ -164,13 +164,16 @@ export async function resolveFilm(candidate) {
   const names = new Set(titles.map(normalize))
   const exactTitle = raw => !raw.adult && [raw.title, raw.original_title].some(name => name && names.has(normalize(name)))
   for (const query of [...new Set(titles)]) {
+    signal?.throwIfAborted()
     const direct = await tmdb('/search/movie', { query, year, include_adult: false })
+    signal?.throwIfAborted()
     const matches = direct.results.filter(exactTitle)
     let movie = matches.find(raw => yearOf(raw.release_date) === year)
     const adjacent = matches.filter(raw => Math.abs(yearOf(raw.release_date) - year) === 1)
     if (!movie && adjacent.length === 1) movie = adjacent[0]
     if (!movie) {
       const broad = await tmdb('/search/movie', { query, include_adult: false })
+      signal?.throwIfAborted()
       movie = broad.results.find(raw => exactTitle(raw) && yearOf(raw.release_date) === year)
     }
     if (movie) {
