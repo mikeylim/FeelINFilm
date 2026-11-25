@@ -137,7 +137,13 @@ export async function handleApi(request, response) {
       }
       const excluded = Array.isArray(data.exclude) ? data.exclude.slice(-75).filter(movie =>
         Number.isSafeInteger(movie?.id) && typeof movie.title === 'string' && movie.title.length <= 180) : []
-      const options = { filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria) }
+      const watchedIds = Array.isArray(data.watched?.ids) ? data.watched.ids.filter(id => Number.isSafeInteger(id) && id > 0) : []
+      const watchedTitles = Array.isArray(data.watched?.recentTitles) ? data.watched.recentTitles.slice(0, 30)
+        .filter(title => typeof title === 'string' && title.trim() && title.length <= 180) : []
+      const options = {
+        filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria),
+        watchedIds, watchedTitles
+      }
       requireRecommendations()
       return await replyWith(request, response, (emit, signal) =>
         withinChatDeadline(chatSignal => liveRecommendations(data.messages, excluded, emit, chatSignal, options), signal))

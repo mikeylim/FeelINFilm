@@ -5,6 +5,7 @@ import {
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { MovieShelf } from './Movies'
 import { linkOut } from './utils'
+import { useWatchlist } from './WatchlistState'
 
 const prompts = [
   [Coffee, 'Cozy night in', 'I’m in the mood for a cozy, feel-good movie. What should I watch?'],
@@ -21,6 +22,7 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
   const recognizer = useRef(null)
   const [listening, setListening] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState('')
+  const { watchedMovies, excludeWatched, setExcludeWatched } = useWatchlist()
   const submit = () => { if (!busy && draft.trim()) onSend(draft) }
   useEffect(() => {
     onFocusRef.current = () => textarea.current?.focus()
@@ -90,6 +92,10 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
           }
         }} />
       <div className="composer-actions">
+        {watchedMovies.length > 0 && <label className="watched-filter">
+          <input type="checkbox" checked={excludeWatched} onChange={event => setExcludeWatched(event.target.checked)} />
+          Exclude watched films
+        </label>}
         <button type="button" className={listening ? 'icon-button mic listening' : 'icon-button mic'} onClick={voice}
           title={listening ? 'Stop listening' : 'Use voice input'} aria-label={listening ? 'Stop listening' : 'Use voice input'} aria-pressed={listening}>
           {listening ? <MicOff size={18} /> : <Mic size={18} />}

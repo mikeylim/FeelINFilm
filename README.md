@@ -9,6 +9,7 @@ FeelINFilm (FIF) helps you decide what to watch. Describe your mood, a film you 
 - **Movie lookup.** Search by title or browse weekly trending films. Cards appear as soon as TMDB returns them, and ratings fill in afterward. Open a detail page for cast, crew, release information, awards summaries, and trailers where available.
 - **Linked ratings.** Compare IMDb, Rotten Tomatoes, and Letterboxd scores in compact badges on movie cards and detail pages. A dash marks an unavailable score.
 - **Guest watchlist.** Save films from lookup, recommendations, or detail pages and revisit them from the sidebar.
+- **Watched films.** Mark titles as already watched from movie cards or detail pages and revisit them under **Watchlist → Watched**. Chat excludes watched films by default, including when you ask for **More picks**. You can turn off the filter in the composer.
 - **Browser-local preferences.** Switch between light and dark themes, reopen recent conversations, or dictate a prompt in a browser that supports speech recognition.
 
 ## Quick start
@@ -52,7 +53,7 @@ The server keeps provider credentials out of the browser bundle. Movie lookup re
 - “Recommend three Japanese films directed by Akira Kurosawa in the 1950s.”
 - “Which films won Oscars at the 2020 ceremony?”
 
-When you send a prompt, the server sends the current conversation to Gemini to generate the reply. The app stores up to 15 recent chats and your watchlist in this browser. Each site address has its own list, so localhost and your Vercel site store separate watchlists. Voice input fills the composer for review before sending. Speech recognition and microphone access depend on the browser.
+When you send a prompt, the server sends the current conversation to Gemini to generate the reply. With **Exclude watched films** enabled, the server also sends recent watched titles to Gemini and filters the results against your full watched list. The app stores up to 15 recent chats, your watchlist, and your watched films in this browser. Localhost and your Vercel site each have their own lists. Voice input fills the composer for review before sending. Speech recognition and microphone access depend on the browser.
 
 ## Build and serve
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Bookmark, ChevronDown, ChevronLeft, ChevronRight, Film, Star } from 'lucide-react'
+import { ArrowUpRight, Bookmark, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star } from 'lucide-react'
 import { filmPath, languageName, linkOut, movieYear, runtimeText } from './utils'
 import { useWatchlist } from './WatchlistState'
 
@@ -60,6 +60,19 @@ export function WatchlistButton({ movie, overlay = false }) {
   </button>
 }
 
+export function WatchedButton({ movie, overlay = false }) {
+  const { watchedIds, toggleWatched } = useWatchlist()
+  const watched = watchedIds.has(movie.id)
+  const Icon = watched ? Check : Eye
+  const style = overlay ? 'movie-save' : 'button detail-secondary watchlist-action'
+  const action = watched ? `Remove ${movie.title} from watched films` : `Mark ${movie.title} as watched`
+  return <button type="button" className={`${style}${watched ? ' is-saved' : ''}`}
+    aria-label={`Already watched ${movie.title}`} aria-pressed={watched} title={action} onClick={() => toggleWatched(movie)}>
+    <Icon size={16} aria-hidden="true" />
+    {!overlay && 'Already watched'}
+  </button>
+}
+
 export function MovieCard({ movie, open, withReason, eager }) {
   const facts = [movieYear(movie), runtimeText(movie.runtime), movie.genres?.[0] || languageName(movie.language)].filter(Boolean)
   return <article className="movie-card">
@@ -67,7 +80,10 @@ export function MovieCard({ movie, open, withReason, eager }) {
       <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={`Open ${movie.title}`}>
         <Poster movie={movie} eager={eager} />
       </a>
-      <WatchlistButton movie={movie} overlay />
+      <div className="movie-actions">
+        <WatchedButton movie={movie} overlay />
+        <WatchlistButton movie={movie} overlay />
+      </div>
     </div>
     <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{movie.title}</a>
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}

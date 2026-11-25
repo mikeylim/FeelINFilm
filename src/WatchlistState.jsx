@@ -3,14 +3,14 @@ import { readStorage, saveStorage } from './utils'
 
 const WatchlistContext = createContext(null)
 
-function readWatchlist() {
-  const saved = readStorage('watchlist', [])
+function readFilms(key) {
+  const saved = readStorage(key, [])
   if (!Array.isArray(saved)) return []
   const valid = saved.filter(movie => Number.isSafeInteger(movie?.id) && typeof movie.title === 'string')
   return [...new Map(valid.map(movie => [movie.id, movie])).values()]
 }
 
-function watchlistCard(movie, existing = {}) {
+function filmCard(movie, existing = {}) {
   return {
     id: movie.id,
     title: movie.title || existing.title,
@@ -30,45 +30,69 @@ function watchlistCard(movie, existing = {}) {
   }
 }
 
-export function WatchlistProvider({ children }) {
-  const [movies, setMovies] = useState(readWatchlist)
+function useLocalValue(key, read) {
+  const [value, setValue] = useState(() => read(key))
 
   useEffect(() => {
-    saveStorage('watchlist', movies)
-  }, [movies])
+    saveStorage(key, value)
+  }, [key, value])
 
   useEffect(() => {
     function sync(event) {
-      if (event.key === 'feelinfilm.watchlist') setMovies(readWatchlist())
+      if (event.key === null || event.key === `feelinfilm.${key}`) setValue(read(key))
     }
     window.addEventListener('storage', sync)
     return () => window.removeEventListener('storage', sync)
-  }, [])
+  }, [key, read])
+
+  return [value, setValue]
+}
+
+function useFilmList(key) {
+  const [movies, setMovies] = useLocalValue(key, readFilms)
 
   const toggle = useCallback(movie => {
     setMovies(current => current.some(item => item.id === movie.id)
       ? current.filter(item => item.id !== movie.id)
-      : [watchlistCard(movie), ...current])
-  }, [])
+      : [filmCard(movie), ...current])
+  }, [setMovies])
 
-  const refresh = useCallback(updates => {
-    const byId = new Map(updates.map(movie => [movie.id, movie]))
+  const refresh = useCallback(byId => {
     setMovies(current => {
       let changed = false
       const next = current.map(movie => {
         const update = byId.get(movie.id)
         if (!update) return movie
-        const updated = watchlistCard(update, movie)
+        const updated = filmCard(update, movie)
         if (JSON.stringify(movie) === JSON.stringify(updated)) return movie
         changed = true
         return updated
       })
       return changed ? next : current
     })
-  }, [])
+  }, [setMovies])
+
+  return { movies, toggle, refresh }
+}
+
+const readExcludeWatched = key => readStorage(key, true) !== false
+
+export function WatchlistProvider({ children }) {
+  const { movies, toggle, refresh: refreshSaved } = useFilmList('watchlist')
+  const { movies: watchedMovies, toggle: toggleWatched, refresh: refreshWatched } = useFilmList('watched')
+  const [excludeWatched, setExcludeWatched] = useLocalValue('excludeWatched', readExcludeWatched)
+
+  const refresh = useCallback(updates => {
+    const byId = new Map(updates.map(movie => [movie.id, movie]))
+    refreshSaved(byId)
+    refreshWatched(byId)
+  }, [refreshSaved, refreshWatched])
 
   const savedIds = new Set(movies.map(movie => movie.id))
-  return <WatchlistContext.Provider value={{ movies, savedIds, toggle, refresh }}>{children}</WatchlistContext.Provider>
+  const watchedIds = new Set(watchedMovies.map(movie => movie.id))
+  return <WatchlistContext.Provider value={{
+    movies, savedIds, toggle, watchedMovies, watchedIds, toggleWatched, excludeWatched, setExcludeWatched, refresh
+  }}>{children}</WatchlistContext.Provider>
 }
 
 export function useWatchlist() {

@@ -147,6 +147,11 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 }
 .composer textarea::placeholder, .lookup-form input::placeholder { color: var(--quiet); opacity: 1; }
 .composer-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: auto; padding-top: 5px; }
+.watched-filter {
+  display: inline-flex; align-items: center; gap: 7px; margin-right: auto;
+  min-height: 36px; color: var(--muted); font-size: .82rem; cursor: pointer;
+}
+.watched-filter input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; flex: 0 0 auto; cursor: pointer; }
 .icon-button {
   display: inline-grid; place-items: center; flex: 0 0 auto; width: 36px; height: 36px;
   border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); padding: 0;
@@ -196,8 +201,9 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .movie-card { min-width: 0; scroll-snap-align: start; }
 .poster-frame { position: relative; }
 .poster-link { display: block; border-radius: 10px; }
+.movie-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 5px; }
 .movie-save {
-  position: absolute; top: 8px; right: 8px; display: grid; place-items: center;
+  display: grid; place-items: center;
   width: 36px; height: 36px; border: 1px solid #e1f1e152; border-radius: 8px;
   background: #102017e8; color: #e4f2e5; box-shadow: 0 2px 8px #0005;
 }
@@ -280,6 +286,13 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .empty-state svg, .empty-state h2 { margin: 0 auto 8px; }
 .empty-state .button { margin-top: 12px; }
 .watchlist-intro { margin-bottom: 36px; }
+.watchlist-tabs {
+  display: inline-flex; margin-top: 16px; gap: 3px; padding: 3px; border: 1px solid var(--line);
+  border-radius: 9px; background: var(--surface);
+}
+.watchlist-tabs > a { padding: 7px 13px; border-radius: 6px; color: var(--muted); font-size: .875rem; font-weight: 650; }
+.watchlist-tabs > a:hover { color: var(--text); }
+.watchlist-tabs > a[aria-current="page"] { background: var(--selected); color: var(--accent); }
 .load-more { margin: 25px auto 0; display: flex; }
 
 .detail-content { padding: 23px 0 60px; }

@@ -74,7 +74,7 @@ function About({ providers, onClose }) {
       <div><dt>OMDb ratings and awards</dt><dd>{providers.omdb ? 'Configured' : 'Optional key'}</dd></div>
       <div><dt>MDBList scores</dt><dd>{providers.mdblist ? 'Configured' : 'Optional key'}</dd></div>
     </dl>}
-    <p>Chats and your watchlist are saved in this browser. Gemini receives the current conversation when you ask for a recommendation.</p>
+    <p>Chats, saved films, and watched films are stored in this browser. Gemini receives the current conversation and, when watched films are excluded, recent watched titles.</p>
     <div className="credits">
       <a href="https://www.themoviedb.org" {...linkOut}><img width="49" src="/tmdb.svg" alt="TMDB" /></a>
       <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
@@ -89,7 +89,7 @@ function previouslyShown(messages) {
 }
 
 function App() {
-  const { refresh } = useWatchlist()
+  const { refresh, excludeWatched, watchedMovies, watchedIds } = useWatchlist()
   const [path, setPath] = useState(readPath)
   const [returnPath, setReturnPath] = useState(() => window.history.state?.from || '/lookup')
   const [filmTitle, setFilmTitle] = useState('')
@@ -115,6 +115,7 @@ function App() {
 
   const isLookup = path.startsWith('/lookup')
   const isWatchlist = path.split('?')[0] === '/watchlist'
+  const watchedTab = isWatchlist && new URLSearchParams(path.split('?')[1]).get('tab') === 'watched'
   const filmId = path.match(/^\/movie\/(\d+)(?:\?|$)/)?.[1]
   const lookupQuery = isLookup ? new URL(path, window.location.origin).searchParams.get('q') || '' : ''
   const thread = threads.find(item => item.id === activeId)
@@ -213,6 +214,14 @@ function App() {
       text: message.role === 'assistant' && message.movies?.length ?
         `${message.text}\nFilms recommended: ${message.movies.map(movie => `${movie.title} (${movieYear(movie) || 'year unknown'})`).join(', ')}`.slice(0, 1600) : message.text
     }))
+    const watched = excludeWatched && watchedMovies.length ? {
+      ids: [...watchedIds],
+      recentTitles: watchedMovies.slice(0, 30).map(movie => {
+        const title = movie.title.slice(0, 160)
+        const year = movieYear(movie)
+        return year ? `${title} (${year})` : title
+      })
+    } : undefined
     const storeReply = result => {
       refresh(result.movies || [])
       setThreads(items => items.map(item => item.id === id ? {
@@ -222,7 +231,7 @@ function App() {
     let partial
     try {
       const result = await requestRecommendations({
-        messages: context, exclude: excluded, criteria, lockCriteria: Boolean(criteria && messages.at(-1).display)
+        messages: context, exclude: excluded, watched, criteria, lockCriteria: Boolean(criteria && messages.at(-1).display)
       }, controller.signal, event => {
         if (event.type === 'stage') setPending(values => ({ ...values, [id]: { stage: event.stage } }))
         if (event.type === 'cards') {
@@ -293,7 +302,7 @@ function App() {
           onSimilar={movie => submit(`I’m looking for films like ${movie.title}${movieYear(movie) ? ` (${movieYear(movie)})` : ''}. What should I watch?`, { fresh: true })} /> :
           isLookup ? <Lookup key={lookupQuery} query={lookupQuery} onSearch={query => navigate(query ? `/lookup?${new URLSearchParams({ q: query })}` : '/lookup')}
             open={open} /> :
-            isWatchlist ? <Watchlist open={open} /> :
+            isWatchlist ? <Watchlist watched={watchedTab} open={open} /> :
             <Chat thread={thread} pending={pending[activeId]} draft={draft} setDraft={setDraft} submit={submit}
               retry={retry} stop={() => requests.current.get(activeId)?.abort()} error={chatError} onFocusRef={focusComposer}
               onMore={() => submit(morePrompt, { more: true })} open={open} />}

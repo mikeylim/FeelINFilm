@@ -58,7 +58,7 @@ const instructions = [
   'Return up to two distinct, short follow-up prompts that naturally refine this conversation.'
 ].join(' ')
 
-function chatContents(messages, excluded, carriedFilters, lockFilters) {
+function chatContents(messages, excluded, carriedFilters, lockFilters, watchedTitles = []) {
   const contents = []
   for (const { role, text } of messages) {
     const nextRole = role === 'assistant' ? 'model' : 'user'
@@ -67,6 +67,9 @@ function chatContents(messages, excluded, carriedFilters, lockFilters) {
   }
   if (excluded.length) {
     contents.at(-1).parts.push({ text: `Exclude these previously suggested films from this reply: ${JSON.stringify(excluded.map(({ title }) => title))}` })
+  }
+  if (watchedTitles.length) {
+    contents.at(-1).parts.push({ text: `Exclude these films the user has already watched: ${JSON.stringify(watchedTitles)}` })
   }
   if (Object.keys(carriedFilters).length) {
     const instruction = lockFilters ? 'These constraints still apply to every alternative.' : 'Here are the previous hard constraints. Carry them forward unless the newest request changes the criteria.'
@@ -190,7 +193,7 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   requireRecommendations()
   emit({ type: 'stage', stage: 'gemini' })
   const carriedFilters = filterSet(options.filters)
-  const contents = chatContents(messages, excluded, carriedFilters, options.lockFilters)
+  const contents = chatContents(messages, excluded, carriedFilters, options.lockFilters, options.watchedTitles)
   const { model, reply } = await generateRecommendation(contents, emit, signal)
   signal?.throwIfAborted()
 
@@ -211,7 +214,8 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   const failures = results.filter(result => result.status === 'rejected')
   if (failures.length === results.length) throw failures[0].reason
 
-  const seen = new Set(excluded.map(movie => movie.id))
+  const watchedIds = options.watchedIds || []
+  const seen = new Set([...watchedIds, ...excluded.map(movie => movie.id)])
   const matches = []
   for (const item of results) {
     const movie = item.status === 'fulfilled' && item.value
@@ -231,15 +235,16 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   const movies = enriched.filter(movie => matchesRatings(movie, filters)).slice(0, limit).map(publicCard)
   return {
     ...base,
-    text: movies.length ? base.text : missesText(filters, excluded.length),
+    text: movies.length ? base.text : missesText(filters, excluded.length, watchedIds.length),
     movies
   }
 }
 
-function missesText(filters, excludedCount) {
+function missesText(filters, excludedCount, watchedCount) {
   if (positive(filters, 'minLetterboxd') || positive(filters, 'minTomatometer') || positive(filters, 'minIMDb')) {
     return 'I couldn’t verify the requested scores for enough matches. Try a different score source or ask for picks without a score minimum.'
   }
+  if (watchedCount) return 'I couldn’t find fresh matches. Try broadening your request or including watched films.'
   if (excludedCount) return 'I couldn’t verify any fresh matches for these constraints. Try loosening one of them.'
   return 'I couldn’t verify any matches for this request. Try adjusting a constraint or giving me another example film.'
 }

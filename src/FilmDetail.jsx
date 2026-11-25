@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { ArrowUpRight, ChevronLeft, Clapperboard, Play, Trophy, UserRound } from 'lucide-react'
-import { MovieShelf, Poster, Ratings, WatchlistButton } from './Movies'
+import { MovieShelf, Poster, Ratings, WatchedButton, WatchlistButton } from './Movies'
 import { api, languageName, linkOut, movieYear, releaseDate, runtimeText } from './utils'
 import { useWatchlist } from './WatchlistState'
 
@@ -26,7 +26,9 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
     return () => request.abort()
   }, [id, retry, setTitle, refresh])
 
-  const backLabel = back.startsWith('/lookup') ? 'lookup' : back.split('?')[0] === '/watchlist' ? 'watchlist' : 'movie chat'
+  const [backPath, backQuery] = back.split('?')
+  const backLabel = backPath === '/lookup' ? 'lookup' : backPath === '/watchlist'
+    ? (new URLSearchParams(backQuery).get('tab') === 'watched' ? 'watched films' : 'watchlist') : 'movie chat'
   const backLink = <a className="back-link" href={back} onClick={event => open(event, back)}><ChevronLeft size={17} /> Back to {backLabel}</a>
 
   if (!film) return <div className="content detail-content">{backLink}
@@ -57,6 +59,7 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
         <div className="detail-actions">
           {film.trailer && <a className="button primary" href={film.trailer} {...linkOut}><Play size={15} /> Watch trailer</a>}
           <WatchlistButton movie={film} />
+          <WatchedButton movie={film} />
           <button className="button detail-secondary" onClick={() => onSimilar(film)}><Clapperboard size={16} /> Ask for similar films</button>
         </div>
       </div>
