@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  ArrowUp, Clapperboard, Coffee, Film, Mic, MicOff, Plus, Square, Trophy
+  ArrowUp, Clapperboard, Clock, Coffee, Film, Mic, MicOff, Plus, Puzzle, Square, Trophy, Video
 } from 'lucide-react'
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { MovieShelf } from './Movies'
@@ -8,9 +8,12 @@ import { linkOut } from './utils'
 
 const prompts = [
   [Coffee, 'Cozy night in', 'I’m in the mood for a cozy, feel-good movie. What should I watch?'],
-  [Film, 'Similar to Arrival', 'I enjoyed Arrival. Recommend similar movies with a thoughtful, atmospheric feel.'],
+  [Film, 'Similar to Inception', 'I loved Inception. What other movies have mind-bending stories and high stakes?'],
   [Trophy, 'Oscar winners', 'Recommend a few films that won Oscars at the 2020 ceremony.'],
-  [Clapperboard, 'Best of the ’90s', 'What are some of the best movies released in the 1990s?']
+  [Clapperboard, 'Best of the ’90s', 'What are some of the best movies released in the 1990s?'],
+  [Puzzle, 'Twisty thrillers', 'Recommend a few suspenseful thrillers with clever twists. Keep the twists a surprise.'],
+  [Clock, '90 minutes or less', 'What are some well-reviewed movies that run 90 minutes or less?'],
+  [Video, 'Directed by Miyazaki', 'Which movies directed by Hayao Miyazaki should I start with, and why?']
 ]
 
 function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
