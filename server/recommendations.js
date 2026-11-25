@@ -164,24 +164,28 @@ async function askGemini(model, contents, signal, timeout) {
 }
 
 async function generateRecommendation(contents, emit, signal) {
-  const model = Date.now() < retryPreferredAfter ? fallbackModel : geminiModel
+  const cooldown = retryPreferredAfter
+  const model = Date.now() < cooldown ? fallbackModel : geminiModel
   const deadline = performance.now() + generationBudget
   try {
     const timeout = model === fallbackModel ? flashLiteTimeout : preferredTimeout
     return { model, reply: await askGemini(model, contents, signal, timeout) }
   } catch (error) {
     signal?.throwIfAborted()
+    const retryModel = model === fallbackModel ? geminiModel : fallbackModel
     const canRetry = error.status === 504 || [0, 500, 502, 503, 504].includes(error.upstreamStatus)
-    const canSwitchOnQuota = error.status === 429 && model !== fallbackModel
+    const canSwitchOnQuota = error.status === 429 && model !== retryModel
     if (!canRetry && !canSwitchOnQuota) throw error
 
-    if (model !== fallbackModel) retryPreferredAfter = Date.now() + 60_000
+    if (model === fallbackModel && retryPreferredAfter === cooldown) retryPreferredAfter = 0
     emit({ type: 'stage', stage: 'backup' })
     await delay(500 + Math.floor(Math.random() * 500), undefined, { signal })
     const remaining = Math.floor(deadline - performance.now())
     if (remaining <= 0) throw error
-    const reply = await askGemini(fallbackModel, contents, signal, Math.min(flashLiteTimeout, remaining))
-    return { model: fallbackModel, reply }
+    const retryTimeout = retryModel === fallbackModel ? flashLiteTimeout : preferredTimeout
+    const reply = await askGemini(retryModel, contents, signal, Math.min(retryTimeout, remaining))
+    if (model !== fallbackModel) retryPreferredAfter = Date.now() + 60_000
+    return { model: retryModel, reply }
   }
 }
 
