@@ -1,4 +1,5 @@
-import { liveDetails, liveSearch, liveTrending, providers } from './providers.js'
+import { isIP } from 'node:net'
+import { liveDetails, liveSearch, liveTrending, providers, requireTmdb } from './providers.js'
 import { liveRecommendations, requireRecommendations } from './recommendations.js'
 import { RequestError } from './upstream.js'
 
@@ -12,6 +13,23 @@ export const sendJson = (response, status, body) => {
 const requestBody = async request => {
   if (!(request.headers['content-type'] || '').startsWith('application/json')) {
     throw new RequestError('Send the request as JSON.', 415)
+  }
+  if (request.readableEnded && Object.hasOwn(request, 'body')) {
+    // Vercel can parse the JSON before handing the request to the function.
+    if (Number(request.headers['content-length']) > maxBodySize) {
+      throw new RequestError('This message is too large.', 413)
+    }
+    let body
+    try {
+      body = request.body
+      if (body === undefined) throw new Error('Missing JSON body')
+    } catch {
+      throw new RequestError('This request contains invalid JSON.', 400)
+    }
+    if (Buffer.byteLength(JSON.stringify(body)) > maxBodySize) {
+      throw new RequestError('This message is too large.', 413)
+    }
+    return body
   }
   const chunks = []
   let size = 0
@@ -35,7 +53,9 @@ function chatLimit(request) {
   for (const [client, entry] of chatRequests) {
     if (entry.until <= now) chatRequests.delete(client)
   }
-  const client = request.socket.remoteAddress
+  const forwarded = process.env.VERCEL === '1' ? request.headers['x-vercel-forwarded-for'] : undefined
+  const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : ''
+  const client = isIP(ip) ? ip : request.socket.remoteAddress
   const entry = chatRequests.get(client) || { count: 0, until: now + 60_000 }
   if (entry.count >= 12) throw new RequestError('You’ve sent several requests in a short time. Try again in a minute.', 429)
   entry.count += 1
@@ -45,21 +65,21 @@ function chatLimit(request) {
 const streamType = 'application/x-ndjson'
 const eventLine = event => JSON.stringify(event) + '\n'
 
-async function replyToChat(request, response, messages, excluded, options) {
-  requireRecommendations()
+async function replyWith(request, response, load) {
   if (!(request.headers.accept || '').includes(streamType)) {
-    return sendJson(response, 200, await liveRecommendations(messages, excluded, undefined, undefined, options))
+    return sendJson(response, 200, await load())
   }
 
   const cancel = new AbortController()
   response.once('close', () => cancel.abort())
+  request.once('error', () => cancel.abort())
   response.writeHead(200, {
     'Content-Type': `${streamType}; charset=utf-8`, 'Cache-Control': 'no-store, no-transform',
     'X-Content-Type-Options': 'nosniff', 'X-Accel-Buffering': 'no'
   })
-  response.flushHeaders()
+  response.flushHeaders?.()
   const emit = event => { if (!response.destroyed) response.write(eventLine(event)) }
-  const result = await liveRecommendations(messages, excluded, emit, cancel.signal, options)
+  const result = await load(emit, cancel.signal)
   if (!response.destroyed) response.end(eventLine({ type: 'done', result }))
 }
 
@@ -71,7 +91,8 @@ export async function handleApi(request, response) {
       return sendJson(response, 200, { providers })
     }
     if (request.method === 'GET' && pathname === '/api/films/trending') {
-      return sendJson(response, 200, { movies: await liveTrending() })
+      requireTmdb()
+      return await replyWith(request, response, liveTrending)
     }
     if (request.method === 'GET' && pathname === '/api/films') {
       const query = searchParams.get('query')?.trim()
@@ -79,7 +100,8 @@ export async function handleApi(request, response) {
       if (!query || query.length > 120 || !Number.isInteger(page) || page < 1 || page > 500) {
         throw new RequestError('Enter a movie title of up to 120 characters.', 400)
       }
-      return sendJson(response, 200, await liveSearch(query, page))
+      requireTmdb()
+      return await replyWith(request, response, (emit, signal) => liveSearch(query, page, emit, signal))
     }
     const detail = pathname.match(/^\/api\/films\/(\d{1,10})$/)
     if (request.method === 'GET' && detail) {
@@ -97,7 +119,8 @@ export async function handleApi(request, response) {
       const excluded = Array.isArray(data.exclude) ? data.exclude.slice(-75).filter(movie =>
         Number.isSafeInteger(movie?.id) && typeof movie.title === 'string' && movie.title.length <= 180) : []
       const options = { filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria) }
-      return await replyToChat(request, response, data.messages, excluded, options)
+      requireRecommendations()
+      return await replyWith(request, response, (emit, signal) => liveRecommendations(data.messages, excluded, emit, signal, options))
     }
     throw new RequestError('This API endpoint could not be found.', 404)
   } catch (error) {

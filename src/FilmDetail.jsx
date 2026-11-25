@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { ArrowUpRight, ChevronLeft, Clapperboard, Play, Trophy, UserRound } from 'lucide-react'
-import { MovieShelf, Poster, Ratings } from './Movies'
+import { MovieShelf, Poster, Ratings, WatchlistButton } from './Movies'
 import { api, languageName, linkOut, movieYear, releaseDate, runtimeText } from './utils'
+import { useWatchlist } from './WatchlistState'
 
 function money(amount) {
   return amount ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount) : ''
@@ -11,18 +12,22 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
   const [film, setFilm] = useState(null)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
+  const { refresh } = useWatchlist()
   useEffect(() => {
     const request = new AbortController()
     api(`films/${id}`, { signal: request.signal }).then(movie => {
+      if (request.signal.aborted) return
       setFilm(movie)
       setTitle(movie.title)
+      refresh([movie, ...(movie.similar || [])])
     }).catch(error => {
       if (error.name !== 'AbortError') setError(error.message)
     })
     return () => request.abort()
-  }, [id, retry, setTitle])
+  }, [id, retry, setTitle, refresh])
 
-  const backLink = <a className="back-link" href={back} onClick={event => open(event, back)}><ChevronLeft size={17} /> Back to {back.startsWith('/lookup') ? 'lookup' : 'movie chat'}</a>
+  const backLabel = back.startsWith('/lookup') ? 'lookup' : back.split('?')[0] === '/watchlist' ? 'watchlist' : 'movie chat'
+  const backLink = <a className="back-link" href={back} onClick={event => open(event, back)}><ChevronLeft size={17} /> Back to {backLabel}</a>
 
   if (!film) return <div className="content detail-content">{backLink}
     <div className="empty-state" role={error ? 'alert' : 'status'}>{error ? <>
@@ -51,6 +56,7 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
         {film.tagline && <p className="tagline">“{film.tagline}”</p>}
         <div className="detail-actions">
           {film.trailer && <a className="button primary" href={film.trailer} {...linkOut}><Play size={15} /> Watch trailer</a>}
+          <WatchlistButton movie={film} />
           <button className="button detail-secondary" onClick={() => onSimilar(film)}><Clapperboard size={16} /> Ask for similar films</button>
         </div>
       </div>

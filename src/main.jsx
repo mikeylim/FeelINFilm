@@ -1,15 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Film, History, Info, Menu, Moon, Plus, Search, Sun, X } from 'lucide-react'
+import { Bookmark, Film, History, Info, Menu, Moon, Plus, Search, Sun, X } from 'lucide-react'
 import { Chat } from './Chat'
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { Lookup } from './Lookup'
 import { FilmDetail } from './FilmDetail'
+import { Watchlist } from './Watchlist'
+import { WatchlistProvider, useWatchlist } from './WatchlistState'
 import { api, linkOut, morePrompt, movieYear, readPath, readStorage, requestRecommendations, saveStorage } from './utils'
 import './styles.css'
 
 function Sidebar({ path, open, close, expanded, newChat, threads, active, pick, remove, theme, toggleTheme, onAbout }) {
   const lookup = path.startsWith('/lookup')
+  const watchlist = path.split('?')[0] === '/watchlist'
   return <>
     {expanded && <button className="sidebar-overlay" aria-label="Close navigation" onClick={close} />}
     <aside className={`sidebar${expanded ? ' sidebar-open' : ''}`} aria-label="Main navigation">
@@ -22,8 +25,9 @@ function Sidebar({ path, open, close, expanded, newChat, threads, active, pick, 
       </div>
       <button className="new-chat" onClick={newChat}><Plus size={19} /> New chat</button>
       <nav className="sidebar-nav">
-        <a className={lookup ? 'nav-item' : 'nav-item selected'} aria-current={!lookup ? 'page' : undefined} href="/" onClick={event => open(event, '/')}><FilmGuideIcon /> AI movie chat</a>
+        <a className={lookup || watchlist ? 'nav-item' : 'nav-item selected'} aria-current={!lookup && !watchlist ? 'page' : undefined} href="/" onClick={event => open(event, '/')}><FilmGuideIcon /> AI movie chat</a>
         <a className={lookup ? 'nav-item selected' : 'nav-item'} aria-current={lookup ? 'page' : undefined} href="/lookup" onClick={event => open(event, '/lookup')}><Search size={18} /> Movie lookup</a>
+        <a className={watchlist ? 'nav-item selected' : 'nav-item'} aria-current={watchlist ? 'page' : undefined} href="/watchlist" onClick={event => open(event, '/watchlist')}><Bookmark size={18} /> Watchlist</a>
       </nav>
       <section className="sidebar-history" aria-label="Recent chats">
         <h2>Recent chats</h2>
@@ -70,7 +74,7 @@ function About({ providers, onClose }) {
       <div><dt>OMDb ratings and awards</dt><dd>{providers.omdb ? 'Configured' : 'Optional key'}</dd></div>
       <div><dt>MDBList scores</dt><dd>{providers.mdblist ? 'Configured' : 'Optional key'}</dd></div>
     </dl>}
-    <p>Chats are saved in this browser. Gemini receives the current conversation when you ask for a recommendation.</p>
+    <p>Chats and your watchlist are saved in this browser. Gemini receives the current conversation when you ask for a recommendation.</p>
     <div className="credits">
       <a href="https://www.themoviedb.org" {...linkOut}><img width="49" src="/tmdb.svg" alt="TMDB" /></a>
       <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
@@ -85,6 +89,7 @@ function previouslyShown(messages) {
 }
 
 function App() {
+  const { refresh } = useWatchlist()
   const [path, setPath] = useState(readPath)
   const [returnPath, setReturnPath] = useState(() => window.history.state?.from || '/lookup')
   const [filmTitle, setFilmTitle] = useState('')
@@ -109,6 +114,7 @@ function App() {
   const requests = useRef(new Map())
 
   const isLookup = path.startsWith('/lookup')
+  const isWatchlist = path.split('?')[0] === '/watchlist'
   const filmId = path.match(/^\/movie\/(\d+)(?:\?|$)/)?.[1]
   const lookupQuery = isLookup ? new URL(path, window.location.origin).searchParams.get('q') || '' : ''
   const thread = threads.find(item => item.id === activeId)
@@ -141,8 +147,9 @@ function App() {
   useEffect(() => { saveStorage('active', activeId, 'sessionStorage') }, [activeId])
 
   useEffect(() => {
-    document.title = filmTitle ? `${filmTitle} · FeelINFilm` : isLookup ? 'Movie lookup · FeelINFilm' : 'FeelINFilm · Find your next film'
-  }, [isLookup, filmTitle])
+    const title = filmTitle || (isLookup ? 'Movie lookup' : isWatchlist ? 'Watchlist' : '')
+    document.title = title ? `${title} · FeelINFilm` : 'FeelINFilm · Find your next film'
+  }, [isLookup, isWatchlist, filmTitle])
 
   useEffect(() => {
     if (!expanded) return
@@ -207,6 +214,7 @@ function App() {
         `${message.text}\nFilms recommended: ${message.movies.map(movie => `${movie.title} (${movieYear(movie) || 'year unknown'})`).join(', ')}`.slice(0, 1600) : message.text
     }))
     const storeReply = result => {
+      refresh(result.movies || [])
       setThreads(items => items.map(item => item.id === id ? {
         ...item, messages: [...item.messages, { ...result, id: replyId, role: 'assistant' }]
       } : item))
@@ -254,7 +262,7 @@ function App() {
     sendTurn(id, messages, exclude)
   }
 
-  const label = filmId ? filmTitle || 'Film details' : isLookup ? 'Movie lookup' : 'AI movie chat'
+  const label = filmId ? filmTitle || 'Film details' : isLookup ? 'Movie lookup' : isWatchlist ? 'Watchlist' : 'AI movie chat'
   const live = providers?.gemini && providers?.tmdb
   const interrupted = !pending[activeId] && thread?.messages.at(-1)?.role === 'user'
   const chatError = errors[activeId]?.message || (interrupted ? 'The last reply was interrupted.' : '')
@@ -272,10 +280,10 @@ function App() {
       <header className="topbar">
         <div className="topbar-title">
           <button className="icon-button mobile-menu" aria-label="Open navigation" aria-expanded={expanded} onClick={() => setExpanded(true)}><Menu size={21} /></button>
-          {filmId ? <Film size={17} /> : isLookup ? <Search size={17} /> : <FilmGuideIcon size={17} />}
+          {filmId ? <Film size={17} /> : isLookup ? <Search size={17} /> : isWatchlist ? <Bookmark size={17} /> : <FilmGuideIcon size={17} />}
           <span>{label}</span>
         </div>
-        {providers && <button className="connection-badge" onClick={() => setAboutOpen(true)}>
+        {providers && !isWatchlist && <button className="connection-badge" onClick={() => setAboutOpen(true)}>
           {((isLookup || filmId) ? providers.tmdb : live) && <i aria-hidden="true" />}
           {isLookup || filmId ? providers.tmdb ? 'TMDB' : 'Setup needed' : live ? 'Gemini' : 'Setup needed'}
         </button>}
@@ -285,6 +293,7 @@ function App() {
           onSimilar={movie => submit(`I’m looking for films like ${movie.title}${movieYear(movie) ? ` (${movieYear(movie)})` : ''}. What should I watch?`, { fresh: true })} /> :
           isLookup ? <Lookup key={lookupQuery} query={lookupQuery} onSearch={query => navigate(query ? `/lookup?${new URLSearchParams({ q: query })}` : '/lookup')}
             open={open} /> :
+            isWatchlist ? <Watchlist open={open} /> :
             <Chat thread={thread} pending={pending[activeId]} draft={draft} setDraft={setDraft} submit={submit}
               retry={retry} stop={() => requests.current.get(activeId)?.abort()} error={chatError} onFocusRef={focusComposer}
               onMore={() => submit(morePrompt, { more: true })} open={open} />}
@@ -294,4 +303,4 @@ function App() {
   </div>
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(<WatchlistProvider><App /></WatchlistProvider>)

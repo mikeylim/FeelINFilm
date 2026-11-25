@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Film, Star } from 'lucide-react'
+import { ArrowUpRight, Bookmark, ChevronDown, ChevronLeft, ChevronRight, Film, Star } from 'lucide-react'
 import { filmPath, languageName, linkOut, movieYear, runtimeText } from './utils'
+import { useWatchlist } from './WatchlistState'
 
 export function Poster({ movie, className = '', eager = false }) {
   const [failed, setFailed] = useState('')
@@ -47,12 +48,27 @@ export function Ratings({ movie, detailed = false }) {
   </div>
 }
 
+export function WatchlistButton({ movie, overlay = false }) {
+  const { savedIds, toggle } = useWatchlist()
+  const saved = savedIds.has(movie.id)
+  const action = saved ? `Remove ${movie.title} from watchlist` : `Save ${movie.title} to watchlist`
+  const style = overlay ? 'movie-save' : 'button detail-secondary watchlist-action'
+  return <button type="button" className={`${style}${saved ? ' is-saved' : ''}`} aria-label={action} title={action}
+    onClick={() => toggle(movie)}>
+    <Bookmark size={16} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
+    {!overlay && (saved ? 'In watchlist' : 'Save to watchlist')}
+  </button>
+}
+
 export function MovieCard({ movie, open, withReason, eager }) {
   const facts = [movieYear(movie), runtimeText(movie.runtime), movie.genres?.[0] || languageName(movie.language)].filter(Boolean)
   return <article className="movie-card">
-    <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={`Open ${movie.title}`}>
-      <Poster movie={movie} eager={eager} />
-    </a>
+    <div className="poster-frame">
+      <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={`Open ${movie.title}`}>
+        <Poster movie={movie} eager={eager} />
+      </a>
+      <WatchlistButton movie={movie} overlay />
+    </div>
     <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{movie.title}</a>
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
     <Ratings movie={movie} />
@@ -78,7 +94,7 @@ function sortMovies(movies, sort) {
   return compare ? [...movies].sort(compare) : movies
 }
 
-export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, eager }) {
+export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, eager, defaultOrder = 'Best match' }) {
   const list = useRef(null)
   const [sort, setSort] = useState('match')
   const [bounds, setBounds] = useState({ previous: false, next: false })
@@ -121,7 +137,7 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
           <select value={sort} onChange={event => {
             setSort(event.target.value)
             list.current?.scrollTo(0, 0)
-          }}>{sortChoices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          }}>{sortChoices.map(([value, label]) => <option key={value} value={value}>{value === 'match' ? defaultOrder : label}</option>)}</select>
           <ChevronDown size={14} />
         </label>}
         {!grid && (bounds.previous || bounds.next) && <div className="carousel-controls">

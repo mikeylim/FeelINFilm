@@ -1,4 +1,4 @@
-import { cacheFor, providerJson } from './upstream.js'
+import { cacheFor, cachedValue, providerJson } from './upstream.js'
 
 const omdbKey = process.env.OMDB_API_KEY?.trim()
 const mdblistKey = process.env.MDBLIST_API_KEY?.trim()
@@ -35,27 +35,62 @@ function getOmdb(imdbId) {
   }).catch(() => null)
 }
 
-function getMdbList(id) {
-  if (!mdblistKey) return null
-  return cacheFor(`mdblist:${id}`, ratingTTL, () => {
-    const query = new URLSearchParams({ apikey: mdblistKey })
-    return providerJson(`https://api.mdblist.com/tmdb/movie/${id}?${query}`, {}, 'MDBList', 3200)
-  }).catch(() => null)
+function getMdbListEntries(movies) {
+  const entries = new Map()
+  if (!mdblistKey) return entries
+  const ids = [...new Set(movies.map(movie => movie.id))]
+  const missing = []
+  for (const id of ids) {
+    const hit = cachedValue(`mdblist:${id}`)
+    if (hit) entries.set(id, hit.catch(() => null))
+    else missing.push(id)
+  }
+  if (!missing.length) return entries
+
+  const query = new URLSearchParams({ apikey: mdblistKey })
+  const base = 'https://api.mdblist.com/tmdb/movie'
+  if (missing.length === 1) {
+    const [id] = missing
+    const load = () => providerJson(`${base}/${id}?${query}`, {}, 'MDBList', 3200)
+    entries.set(id, cacheFor(`mdblist:${id}`, ratingTTL, load).catch(() => null))
+  } else {
+    const batch = providerJson(`${base}?${query}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: missing.map(String) })
+    }, 'MDBList', 3200).then(rows => {
+      if (!Array.isArray(rows)) throw new Error('Unexpected MDBList batch response')
+      return new Map(rows.map(row => [Number(row.ids?.tmdb), row]))
+    })
+    for (const id of missing) {
+      const load = () => batch.then(rows => rows.get(id) || null)
+      entries.set(id, cacheFor(`mdblist:${id}`, ratingTTL, load).catch(() => null))
+    }
+  }
+  return entries
 }
 
-export async function withRatings(movie) {
-  const [omdb, mdb] = await Promise.all([getOmdb(movie.imdbId), getMdbList(movie.id)])
+async function rateMovie(movie, entry, { awards, completeMovie }) {
+  const awardLookup = awards && movie.imdbId ? getOmdb(movie.imdbId) : null
+  const mdb = await entry
   const sources = new Map((Array.isArray(mdb?.ratings) ? mdb.ratings : []).map(rating => [rating.source, rating]))
-  const omdbRt = omdb?.Ratings?.find(rating => rating.Source === 'Rotten Tomatoes')?.Value
   const rt = sources.get('tomatoes')
   const letterboxd = sources.get('letterboxd')
-  const tomatometer = decimal(rt?.value, 100) ?? (/^\d{1,3}%$/.test(omdbRt || '') ? decimal(omdbRt.slice(0, -1), 100) : null)
-  const imdb = display(decimal(omdb?.imdbRating, 10, 1) ?? decimal(sources.get('imdb')?.value, 10, 1))
+  const mdbImdb = decimal(sources.get('imdb')?.value, 10, 1)
+  const mdbTomatometer = decimal(rt?.value, 100)
+  const needsOmdb = awards || mdbImdb == null || mdbTomatometer == null
+  const imdbId = movie.imdbId || (/^tt\d{7,}$/.test(mdb?.ids?.imdb || '') ? mdb.ids.imdb : '')
+  let complete = { ...movie, imdbId, runtime: movie.runtime || decimal(mdb?.runtime, 1440, 1) }
+  if (completeMovie && (!complete.runtime || (omdbKey && needsOmdb && !imdbId))) {
+    complete = await completeMovie(complete)
+  }
+  const omdb = needsOmdb ? await (awardLookup || getOmdb(complete.imdbId)) : null
+  const omdbRt = omdb?.Ratings?.find(rating => rating.Source === 'Rotten Tomatoes')?.Value
+  const tomatometer = mdbTomatometer ?? (/^\d{1,3}%$/.test(omdbRt || '') ? decimal(omdbRt.slice(0, -1), 100) : null)
+  const imdb = display(decimal(omdb?.imdbRating, 10, 1) ?? mdbImdb)
   const boxdNormalized = decimal(letterboxd?.score, 100, 10)
   const boxdScore = display(boxdNormalized == null ? null : boxdNormalized / 20)
   return {
-    ...movie,
-    imdbId: movie.imdbId || (/^tt\d{7,}$/.test(mdb?.ids?.imdb || '') ? mdb.ids.imdb : ''),
+    ...complete,
     rtUrl: filmLink(rt?.url, 'rottentomatoes.com', /^\/m\/[^/]+\/?$/),
     letterboxdUrl: filmLink(letterboxd?.url, 'letterboxd.com', /^\/film\/[^/]+\/?$/),
     ratings: {
@@ -65,4 +100,14 @@ export async function withRatings(movie) {
     },
     awards: typeof omdb?.Awards === 'string' && omdb.Awards !== 'N/A' ? omdb.Awards : ''
   }
+}
+
+export async function withRatingsFor(movies, options = {}) {
+  const entries = getMdbListEntries(movies)
+  return Promise.all(movies.map(movie => rateMovie(movie, entries.get(movie.id), options)))
+}
+
+export async function withRatings(movie) {
+  const [rated] = await withRatingsFor([movie], { awards: true })
+  return rated
 }

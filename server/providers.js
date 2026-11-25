@@ -1,5 +1,5 @@
-import { ratingProviders, withRatings } from './ratings.js'
-import { cacheFor, providerJson, RequestError } from './upstream.js'
+import { ratingProviders, withRatings, withRatingsFor } from './ratings.js'
+import { cacheFor, logMetric, providerJson, RequestError } from './upstream.js'
 
 const token = (process.env.TMDB_READ_ACCESS_TOKEN || process.env.TMDB_ACCESS_TOKEN)?.trim()
 const tmdbKey = process.env.TMDB_API_KEY?.trim()
@@ -97,17 +97,37 @@ async function enrichResults(results) {
   for (let i = 0; i < results.length; i += 10) {
     const batch = await Promise.all(results.slice(i, i + 10).map(async raw => {
       try {
-        return await withRatings(formatMovie(await rawMovie(raw.id)))
+        return formatMovie(await rawMovie(raw.id))
       } catch {
         return summary(raw)
       }
     }))
     movies.push(...batch)
   }
-  return movies
+  return withRatingsFor(movies, { awards: true })
 }
 
-export async function liveSearch(query, page) {
+async function completeCard(movie) {
+  try {
+    const raw = await tmdb(`/movie/${movie.id}`)
+    return { ...movie, imdbId: movie.imdbId || raw.imdb_id, runtime: movie.runtime || raw.runtime }
+  } catch {
+    return movie
+  }
+}
+
+async function movieList(results, more, { emit, signal, started, source }) {
+  logMetric('movie_results', { source, count: results.length, firstCardsMs: Math.round(performance.now() - started) })
+  if (!emit) return { movies: await enrichResults(results), more }
+
+  signal?.throwIfAborted()
+  const movies = results.map(summary)
+  emit({ type: 'cards', result: { movies, more } })
+  return { movies: await withRatingsFor(movies, { completeMovie: completeCard }), more }
+}
+
+export async function liveSearch(query, page, emit, signal) {
+  const started = performance.now()
   const cleaned = query.trim()
   const explicitYear = cleaned.match(/^(.+?)\s*\((\d{4})\)$/)
   const parameters = { page, include_adult: false }
@@ -116,12 +136,14 @@ export async function liveSearch(query, page) {
   if (trailingYear && !result.total_results) {
     result = await tmdb('/search/movie', { ...parameters, query: trailingYear[1], year: trailingYear[2] }, 10 * 60_000)
   }
-  return { movies: await enrichResults(result.results), more: page < Math.min(result.total_pages, 500) }
+  const more = page < Math.min(result.total_pages, 500)
+  return movieList(result.results, more, { emit, signal, started, source: 'search' })
 }
 
-export async function liveTrending() {
+export async function liveTrending(emit, signal) {
+  const started = performance.now()
   const result = await tmdb('/trending/movie/week')
-  return enrichResults(result.results.filter(movie => !movie.adult).slice(0, 10))
+  return movieList(result.results.filter(movie => !movie.adult).slice(0, 10), false, { emit, signal, started, source: 'trending' })
 }
 
 export async function liveDetails(id) {

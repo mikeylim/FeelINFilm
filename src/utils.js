@@ -3,20 +3,37 @@ export async function api(path, options) {
   return jsonResponse(response)
 }
 
+const unavailable = 'The movie server is unavailable. Try again shortly.'
+const requestFailed = 'Something went wrong. Try again.'
+
+function errorMessage(error) {
+  const message = typeof error === 'string' ? error : error?.message
+  return typeof message === 'string' && message.trim() ? message.trim() : requestFailed
+}
+
 async function jsonResponse(response) {
-  if (!response.headers.get('content-type')?.includes('application/json')) {
-    throw new Error('The movie server is unavailable. Try again shortly.')
+  if (response.status === 404 && response.headers.get('x-vercel-error') === 'NOT_FOUND') {
+    throw new Error('The movie API is missing from this deployment.')
   }
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Something went wrong. Try again.')
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error(unavailable)
+  }
+  const data = await response.json().catch(() => { throw new Error(unavailable) })
+  if (!response.ok) throw new Error(errorMessage(data?.error))
   return data
 }
 
 export async function requestRecommendations(data, signal, onUpdate) {
-  const response = await fetch('/api/chat', {
+  return requestUpdates('chat', {
     method: 'POST', signal,
-    headers: { Accept: 'application/x-ndjson', 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
+  }, onUpdate)
+}
+
+export async function requestUpdates(path, options, onUpdate) {
+  const response = await fetch(`/api/${path}`, {
+    ...options, headers: { ...options.headers, Accept: 'application/x-ndjson' }
   })
   if (!response.ok || !response.headers.get('content-type')?.includes('application/x-ndjson')) {
     return jsonResponse(response)
@@ -29,14 +46,14 @@ export async function requestRecommendations(data, signal, onUpdate) {
   try {
     while (true) {
       const { value, done } = await reader.read()
-      if (done) throw new Error('The reply was interrupted. Try again.')
+      if (done) throw new Error('The request was interrupted. Try again.')
       pending += decoder.decode(value, { stream: true })
       const lines = pending.split('\n')
       pending = lines.pop() || ''
       for (const line of lines) {
         if (!line.trim()) continue
         const event = JSON.parse(line)
-        if (event.type === 'error') throw new Error(event.error)
+        if (event.type === 'error') throw new Error(errorMessage(event.error))
         if (event.type === 'done') {
           completed = true
           return event.result

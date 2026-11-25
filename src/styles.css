@@ -194,7 +194,16 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 }
 .movie-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); row-gap: 26px; }
 .movie-card { min-width: 0; scroll-snap-align: start; }
+.poster-frame { position: relative; }
 .poster-link { display: block; border-radius: 10px; }
+.movie-save {
+  position: absolute; top: 8px; right: 8px; display: grid; place-items: center;
+  width: 36px; height: 36px; border: 1px solid #e1f1e152; border-radius: 8px;
+  background: #102017e8; color: #e4f2e5; box-shadow: 0 2px 8px #0005;
+}
+.movie-save:hover { background: #244a34; }
+.movie-save.is-saved, .watchlist-action.is-saved { background: #ace3b9; color: #142a1c; border-color: #ace3b9; }
+.movie-save.is-saved:hover, .watchlist-action.is-saved:hover { background: #c5f0cc; }
 .poster {
   aspect-ratio: 2/3; border-radius: 10px; background: var(--raised); border: 1px solid var(--line);
   overflow: hidden; display: grid; place-items: center; isolation: isolate;
@@ -270,6 +279,7 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .empty-state { padding: 45px 12px; border: 1px dashed var(--line); border-radius: 12px; }
 .empty-state svg, .empty-state h2 { margin: 0 auto 8px; }
 .empty-state .button { margin-top: 12px; }
+.watchlist-intro { margin-bottom: 36px; }
 .load-more { margin: 25px auto 0; display: flex; }
 
 .detail-content { padding: 23px 0 60px; }

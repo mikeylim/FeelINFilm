@@ -30,7 +30,7 @@ createServer(async (request, response) => {
     if (!file.startsWith(`${resolve(root)}${sep}`) && file !== resolve(root)) {
       return sendJson(response, 404, { error: 'File not found.' })
     }
-    const isRoute = pathname === '/' || pathname === '/lookup' || /^\/movie\/\d+$/.test(pathname)
+    const isRoute = pathname === '/' || pathname === '/lookup' || pathname === '/watchlist' || /^\/movie\/\d+$/.test(pathname)
     const asset = isRoute ? index : file
     const info = await stat(asset).catch(() => null)
     if (!info?.isFile()) return sendJson(response, 404, { error: 'Page not found.' })

@@ -1,5 +1,5 @@
 import { geminiKey, geminiModel, normalize, requireTmdb, resolveFilm, yearOf } from './providers.js'
-import { withRatings } from './ratings.js'
+import { withRatingsFor } from './ratings.js'
 import { providerJson, RequestError } from './upstream.js'
 
 const fallbackModel = 'gemini-3.1-flash-lite'
@@ -210,7 +210,7 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
     emit({ type: 'cards', result: { ...base, movies: matches.slice(0, limit).map(publicCard) } })
   }
   if (matches.length && needsRatings) emit({ type: 'stage', stage: 'ratings' })
-  const enriched = await Promise.all((needsRatings ? matches : matches.slice(0, limit)).map(withRatings))
+  const enriched = await withRatingsFor(needsRatings ? matches : matches.slice(0, limit), { awards: Boolean(awardYear) })
   signal?.throwIfAborted()
   const movies = enriched.filter(movie => matchesRatings(movie, filters)).slice(0, limit).map(publicCard)
   return {

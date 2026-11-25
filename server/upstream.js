@@ -8,9 +8,14 @@ export class RequestError extends Error {
 
 const cache = new Map()
 
-export function cacheFor(key, duration, load) {
+export function cachedValue(key) {
   const existing = cache.get(key)
-  if (existing?.until > Date.now()) return existing.value
+  return existing?.until > Date.now() ? existing.value : undefined
+}
+
+export function cacheFor(key, duration, load) {
+  const existing = cachedValue(key)
+  if (existing) return existing
   if (cache.size >= 1000) cache.delete(cache.keys().next().value)
   const value = Promise.resolve().then(load)
   cache.set(key, { value, until: Date.now() + duration })
@@ -20,18 +25,27 @@ export function cacheFor(key, duration, load) {
   return value
 }
 
+export function logMetric(event, attributes) {
+  if (process.env.PROVIDER_METRICS === '1' || attributes.status === 429) {
+    console.info(JSON.stringify({ event, ...attributes }))
+  }
+}
+
 export async function providerJson(url, options, provider, timeout = 8000) {
+  const started = performance.now()
   const deadline = AbortSignal.timeout(timeout)
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline
   let response
   try {
     response = await fetch(url, { ...options, signal })
   } catch {
+    logMetric('provider_request', { provider, status: deadline.aborted ? 504 : 0, durationMs: Math.round(performance.now() - started) })
     options.signal?.throwIfAborted()
     const message = deadline.aborted ? `${provider} took too long to respond. Try again.` : `${provider} is unreachable right now. Try again shortly.`
     throw new RequestError(message, deadline.aborted ? 504 : 502)
   }
   const status = response.status
+  logMetric('provider_request', { provider, status, durationMs: Math.round(performance.now() - started) })
   if (status === 429) throw new RequestError(`${provider} reached its request limit. Try again shortly.`, 429, status)
   if (status === 503 || status === 504) throw new RequestError(`${provider} is temporarily busy. Try again shortly.`, 503, status)
   if (status === 401 || status === 403) {
