@@ -1,0 +1,18 @@
+# Dependencies and build output
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Local provider credentials
+.env
+.env.*
+!.env.example
+
+# Local logs and OS metadata
+*.log
+.DS_Store
+
+# Artwork from the retired preview catalog
+/public/posters/
+/public/arrival-backdrop.webp
