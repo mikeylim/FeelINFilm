@@ -219,10 +219,11 @@ function App() {
       const result = await requestRecommendations({
         messages: context, exclude: excluded, watched, criteria, lockCriteria: Boolean(criteria && messages.at(-1).display)
       }, controller.signal, event => {
-        if (event.type === 'stage') setPending(values => ({ ...values, [id]: { stage: event.stage } }))
+        if (event.type === 'stage') setPending(values => ({ ...values, [id]: { ...values[id], stage: event.stage } }))
         if (event.type === 'cards') {
           partial = event.result
-          setPending(values => ({ ...values, [id]: { stage: 'ratings', reply: { ...partial, id: replyId, role: 'assistant' } } }))
+          const reply = { ...event.result, id: replyId, role: 'assistant' }
+          setPending(values => ({ ...values, [id]: { ...values[id], reply } }))
         }
       })
       storeReply(result)

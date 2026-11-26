@@ -230,6 +230,50 @@ function publicCard({ id, title, date, poster, language, genres, runtime, imdbId
   return { id, title, date, poster, language, genres, runtime, imdbId, rtUrl, letterboxdUrl, ratings, directors, reason, oscarWins }
 }
 
+function rankedMatches(results, limit) {
+  const matches = new Map()
+  let slots = limit
+  for (const movie of results) {
+    // Reserve a slot for each pending higher-ranked candidate so shown picks stay in the final list.
+    if (movie === undefined) slots -= 1
+    else if (movie && !matches.has(movie.id)) {
+      matches.set(movie.id, movie)
+      slots -= 1
+    }
+    if (!slots) break
+  }
+  return [...matches.values()]
+}
+
+async function verifyCandidates(candidates, verify, limit, publish, signal) {
+  const pending = new Map(candidates.map((candidate, index) => [index,
+    resolveFilm(candidate, signal).then(movie => ({ index, movie }), error => ({ index, error }))
+  ]))
+  const results = Array(candidates.length)
+  let firstError
+  let successfulLookups = 0
+  let published = 0
+  let matches = []
+
+  while (pending.size) {
+    const { index, movie, error } = await Promise.race(pending.values())
+    signal?.throwIfAborted()
+    pending.delete(index)
+    if (error) firstError ??= error
+    else successfulLookups += 1
+    results[index] = movie ? verify(movie) : null
+    matches = rankedMatches(results, limit)
+    if (publish && matches.length > published) {
+      published = matches.length
+      publish(matches)
+    }
+    if (matches.length === limit) break
+  }
+
+  if (!successfulLookups && firstError) throw firstError
+  return matches
+}
+
 async function answerOscarQuestion({ year, category, key }, emit, signal) {
   const winners = academyWinners(year, key)
   const criteria = { oscarWinner: true, oscarCeremonyYear: year, oscarCategories: [category] }
@@ -256,6 +300,7 @@ async function answerOscarQuestion({ year, category, key }, emit, signal) {
   if (!matches.length) return result
 
   emit({ type: 'cards', result: { ...result, movies: matches.map(publicCard) } })
+  emit({ type: 'stage', stage: 'ratings' })
   const movies = await withRatingsFor(matches)
   signal?.throwIfAborted()
   return { ...result, movies: movies.map(publicCard) }
@@ -289,33 +334,20 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   }
 
   emit({ type: 'stage', stage: 'matching' })
-  const results = await Promise.allSettled(candidates.map(candidate => resolveFilm(candidate, signal)))
-  signal?.throwIfAborted()
-  const failures = results.filter(result => result.status === 'rejected')
-  if (failures.length === results.length) throw failures[0].reason
-
   const watchedIds = options.watchedIds || []
-  const seen = new Set([...watchedIds, ...excluded.map(movie => movie.id)])
-  const matches = []
-  for (const item of results) {
-    const movie = item.status === 'fulfilled' && item.value
-    if (!movie || seen.has(movie.id) || !matchesMovie(movie, filters)) continue
-    if (awardRequest) {
-      const oscarWins = verifiedOscarWins(movie.imdbId, filters)
-      if (!oscarWins.length) continue
-      matches.push({ ...movie, reason: '', oscarWins })
-    } else {
-      matches.push(movie)
-    }
-    seen.add(movie.id)
+  const excludedIds = new Set([...watchedIds, ...excluded.map(movie => movie.id)])
+  const needsRatings = ['minIMDb', 'minTomatometer', 'minLetterboxd', 'minReviewScore'].some(key => positive(filters, key))
+  const publish = needsRatings ? undefined : matches => emit({ type: 'cards', result: { ...base, movies: matches.map(publicCard) } })
+  const verify = movie => {
+    if (excludedIds.has(movie.id) || !matchesMovie(movie, filters)) return null
+    if (!awardRequest) return movie
+    const oscarWins = verifiedOscarWins(movie.imdbId, filters)
+    return oscarWins.length ? { ...movie, reason: '', oscarWins } : null
   }
 
-  const needsRatings = ['minIMDb', 'minTomatometer', 'minLetterboxd', 'minReviewScore'].some(key => positive(filters, key))
-  if (matches.length && !needsRatings) {
-    emit({ type: 'cards', result: { ...base, movies: matches.slice(0, limit).map(publicCard) } })
-  }
-  if (matches.length && needsRatings) emit({ type: 'stage', stage: 'ratings' })
-  const enriched = await withRatingsFor(needsRatings ? matches : matches.slice(0, limit))
+  const matches = await verifyCandidates(candidates, verify, needsRatings ? candidates.length : limit, publish, signal)
+  if (matches.length) emit({ type: 'stage', stage: 'ratings' })
+  const enriched = await withRatingsFor(matches)
   signal?.throwIfAborted()
   const movies = enriched.filter(movie => matchesRatings(movie, filters)).slice(0, limit).map(publicCard)
   return {

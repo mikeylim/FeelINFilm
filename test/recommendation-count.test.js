@@ -9,7 +9,7 @@ delete process.env.OMDB_API_KEY
 const { liveRecommendations } = await import('../server/recommendations.js')
 
 let nextId = 1
-function mockRecommendations(t, fields, runtime = () => 100) {
+function mockRecommendations(t, fields, runtime = () => 100, beforeDetails = () => {}) {
   const movies = Array.from({ length: 12 }, (_, index) => {
     const id = nextId++
     return { id, title: `Test film ${id}`, release_date: '1994-01-01', runtime: runtime(index), genres: [] }
@@ -34,7 +34,9 @@ function mockRecommendations(t, fields, runtime = () => 100) {
       searches.push(title)
       return Response.json({ results: movies.filter(movie => movie.title === title) })
     }
-    return Response.json(movies.find(movie => url.pathname === '/3/movie/' + movie.id))
+    const movie = movies.find(movie => url.pathname === '/3/movie/' + movie.id)
+    await beforeDetails(movies.indexOf(movie))
+    return Response.json(movie)
   })
   return { movies, searches }
 }
@@ -57,10 +59,36 @@ for (const { prompt, fields, total } of [
     const reply = await liveRecommendations(ask(prompt), [], event => events.push(event))
     const expected = movies.slice(0, total).map(movie => movie.id)
     assert.deepEqual(reply.movies.map(movie => movie.id), expected)
-    assert.deepEqual(events.find(event => event.type === 'cards').result.movies.map(movie => movie.id), expected)
+    assert.deepEqual(events.findLast(event => event.type === 'cards').result.movies.map(movie => movie.id), expected)
     assert.equal(searches.length, total + 2)
   })
 }
+
+test('ready picks stream ahead of slow matches while keeping the final ranking', { timeout: 2000 }, async t => {
+  const firstMatch = Promise.withResolvers()
+  const unusedMatch = Promise.withResolvers()
+  const firstCards = Promise.withResolvers()
+  t.after(() => { firstMatch.resolve(); unusedMatch.resolve() })
+  const { movies } = mockRecommendations(t, {}, undefined, index => {
+    if (index === 0) return firstMatch.promise
+    if (index === 3) return unusedMatch.promise
+  })
+  const reply = liveRecommendations(ask('Give me two thrillers.'), [], event => {
+    if (event.type === 'cards') firstCards.resolve(event.result.movies)
+  })
+  assert.deepEqual((await Promise.race([firstCards.promise, reply.then(() => [])])).map(movie => movie.id), [movies[1].id])
+  firstMatch.resolve()
+  assert.deepEqual((await reply).movies.map(movie => movie.id), movies.slice(0, 2).map(movie => movie.id))
+})
+
+test('a rating minimum prevents unverified cards from streaming', async t => {
+  mockRecommendations(t, { filters: { minIMDb: 8.5 } })
+  const events = []
+  const reply = await liveRecommendations(ask('Recommend films with an IMDb rating of at least 8.5.'), [], event => events.push(event))
+  assert.ok(events.some(event => event.stage === 'ratings'))
+  assert.equal(events.some(event => event.type === 'cards'), false)
+  assert.deepEqual(reply.movies, [])
+})
 
 test('a shortlist keeps a stated runtime even when Gemini confuses the number with a count', async t => {
   const { movies, searches } = mockRecommendations(t, { count: 6, requestedCount: 90 }, index => index < 4 ? 89 : 90)

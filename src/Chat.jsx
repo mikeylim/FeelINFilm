@@ -183,13 +183,16 @@ export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, er
           <MovieShelf movies={message.movies || []} heading={message.movies?.length
             ? (message.source === 'academy' ? 'Oscar results' : 'Your recommendations') : ''}
             sortEnabled withReason eager={index === messages.length - 1} open={open} />
+          {message === pending?.reply && <p className="chat-progress" role="status">
+            {pending.stage === 'ratings' ? 'Loading film ratings…' : 'Verifying more film matches…'}
+          </p>}
           {index === messages.length - 1 && !busy && message.source !== 'academy' && ((message.movies?.length || 0) > 0 || message.followUps?.length > 0) &&
             <div className="followups">
               {message.movies?.length > 0 && <button className="prompt-chip more-picks" onClick={onMore}><Plus size={16} /> More picks</button>}
               {message.followUps?.map((text, index) => <button key={`${index}-${text}`} className="prompt-chip" onClick={() => submit(text)}>{text}</button>)}
             </div>}
         </section>)}
-      {busy && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {progress[pending.stage] || 'Curating your film recommendations'}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
+      {busy && !pending.reply && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {progress[pending.stage] || 'Curating your film recommendations'}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
       {error && <div ref={turnStatus} className="chat-error" role="alert"><p>{error}</p><button className="button secondary" onClick={retry}>Try again</button></div>}
     </div>
     <div className="sticky-composer" ref={composerArea}>{composer}</div>

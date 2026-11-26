@@ -1,7 +1,7 @@
 import { isIP } from 'node:net'
 import { liveDetails, liveSearch, liveTrending, providers, requireTmdb } from './providers.js'
 import { liveRecommendations, requireRecommendations } from './recommendations.js'
-import { RequestError } from './upstream.js'
+import { logMetric, RequestError } from './upstream.js'
 
 const maxBodySize = 120_000
 const chatRequests = new Map()
@@ -102,6 +102,36 @@ async function withinChatDeadline(load, signal) {
   }
 }
 
+async function chatReply(messages, excluded, options, emit, signal) {
+  const started = performance.now()
+  const elapsed = () => Math.round(performance.now() - started)
+  let firstCardsMs = null
+  let reply
+  let status = 200
+  let outcome = 'complete'
+
+  try {
+    const result = await withinChatDeadline(chatSignal => liveRecommendations(messages, excluded, event => {
+      if (emit && event.type === 'cards' && event.result.movies.length) {
+        firstCardsMs ??= elapsed()
+        reply = event.result
+      }
+      emit?.(event)
+    }, chatSignal, options), signal)
+    reply = result
+    if (result.movies.length) firstCardsMs ??= elapsed()
+    return result
+  } catch (error) {
+    status = signal.aborted ? 499 : error.status || 500
+    outcome = signal.aborted ? 'cancelled' : status === 504 || error.upstreamStatus === 504 ? 'timeout' : 'error'
+    throw error
+  } finally {
+    logMetric('chat_request', {
+      status, outcome, source: reply?.source, model: reply?.model, durationMs: elapsed(), firstCardsMs
+    })
+  }
+}
+
 export async function handleApi(request, response) {
   try {
     const url = new URL(request.url, 'http://localhost')
@@ -145,8 +175,7 @@ export async function handleApi(request, response) {
         watchedIds, watchedTitles
       }
       requireRecommendations(data.messages, options)
-      return await replyWith(request, response, (emit, signal) =>
-        withinChatDeadline(chatSignal => liveRecommendations(data.messages, excluded, emit, chatSignal, options), signal))
+      return await replyWith(request, response, (emit, signal) => chatReply(data.messages, excluded, options, emit, signal))
     }
     throw new RequestError('This API endpoint could not be found.', 404)
   } catch (error) {

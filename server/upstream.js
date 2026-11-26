@@ -27,7 +27,7 @@ export function cacheFor(key, duration, load) {
 
 export function logMetric(event, attributes) {
   const geminiBusy = attributes.provider === 'Gemini' && attributes.status === 503
-  if (process.env.PROVIDER_METRICS === '1' || [429, 504].includes(attributes.status) || geminiBusy) {
+  if (process.env.PROVIDER_METRICS === '1' || [429, 504].includes(attributes.status) || geminiBusy || attributes.outcome === 'timeout') {
     console.info(JSON.stringify({ event, ...attributes }))
   }
 }

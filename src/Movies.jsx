@@ -148,6 +148,7 @@ const sortChoices = [
   ['recent', 'Newest release'], ['oldest', 'Oldest release'], ['short', 'Shortest runtime'], ['title', 'Title A–Z']
 ]
 const positive = value => Number.parseFloat(value) || 0
+const dateWatched = movie => parseCalendarDate(movie.watchedOn) ? movie.watchedOn : ''
 function sortMovies(movies, sort) {
   const compare = {
     imdb: (a, b) => positive(b.ratings?.imdb) - positive(a.ratings?.imdb),
@@ -155,6 +156,7 @@ function sortMovies(movies, sort) {
     letterboxd: (a, b) => positive(b.ratings?.letterboxd) - positive(a.ratings?.letterboxd),
     recent: (a, b) => (b.date || '').localeCompare(a.date || ''),
     oldest: (a, b) => (a.date || '9999').localeCompare(b.date || '9999'),
+    watchedOn: (a, b) => dateWatched(b).localeCompare(dateWatched(a)),
     short: (a, b) => (a.runtime || Infinity) - (b.runtime || Infinity),
     title: (a, b) => a.title.localeCompare(b.title)
   }[sort]
@@ -166,6 +168,7 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
   const [sort, setSort] = useState('match')
   const [bounds, setBounds] = useState({ previous: false, next: false })
   const ordered = sortMovies(movies, sort)
+  const choices = onEditWatchDate ? [sortChoices[0], ['watchedOn', 'Date watched (newest)'], ...sortChoices.slice(1)] : sortChoices
 
   useEffect(() => {
     const element = list.current
@@ -199,12 +202,12 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
         {description && <p>{description}</p>}
       </div>
       <div className="shelf-actions">
-        {sortEnabled && movies.length > 1 && <label className="sort-control">
+        {sortEnabled && (movies.length > 1 || entryDate) && <label className="sort-control">
           <span className="sr-only">Sort movies</span>
           <select value={sort} onChange={event => {
             setSort(event.target.value)
             list.current?.scrollTo(0, 0)
-          }}>{sortChoices.map(([value, label]) => <option key={value} value={value}>{value === 'match' ? defaultOrder : label}</option>)}</select>
+          }}>{choices.map(([value, label]) => <option key={value} value={value}>{value === 'match' ? defaultOrder : label}</option>)}</select>
           <ChevronDown size={14} />
         </label>}
         {!grid && (bounds.previous || bounds.next) && <div className="carousel-controls">

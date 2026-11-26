@@ -4,13 +4,14 @@ FeelINFilm (FIF) helps you decide what to watch. Describe your mood, a film you 
 
 ## Features
 
-- **Conversational recommendations.** Gemini uses the current conversation to suggest films. FeelINFilm matches the picks against TMDB and checks supported constraints against the available data.
+- **Conversational recommendations.** Gemini uses the current conversation to suggest films. Verified picks appear while matching continues, and ratings fill in afterward. A request with a rating minimum waits for the scores it needs to verify the picks.
 - **Refine your picks.** Chat aims for three or four films for quick or narrow requests and five or six for typical requests. Ask for a longer list or a specific number to get up to ten verified films. **More picks** keeps the current criteria and skips titles already suggested.
 - **Movie lookup.** Search by title or browse weekly trending films. Cards appear as soon as TMDB returns them, and ratings fill in afterward. Open a detail page for cast, crew, release information, awards summaries, and trailers where available.
 - **Linked ratings.** Compare IMDb, Rotten Tomatoes, and Letterboxd scores in compact badges on movie cards and detail pages. A dash marks an unavailable score.
 - **Verified Oscar picks.** Direct winner questions with a ceremony year and category use the Academy records. Awards recommendations check each film’s IMDb ID against the requested ceremony and category. Cards show the exact wins and link to the ceremony.
 - **Guest watchlist.** Save films from lookup, recommendations, or detail pages and revisit them from the sidebar.
 - **Watched films.** Mark titles as already watched from movie cards or detail pages and open **Watched** from the sidebar. Chat excludes watched films from recommendations by default, including when you ask for **More picks**. You can turn off the filter in the composer.
+- **Search and sort your lists.** Filter Watchlist and Watched by title as you type. Both lists support the same rating, release, runtime, and title sorts as recommendations. **Date watched (newest)** uses the viewing date and puts undated films last.
 - **List dates.** Watchlist and Watched record their own action timestamps. Each list displays the dates in your timezone and sorts by its action date. Older entries keep their original order after dated entries. Select **Already watched** on a card or detail page to log a film and pick the day you saw it, or choose **Skip date**. You can also edit the date from the Watched list.
 - **Browser-local preferences.** Switch between light and dark themes, reopen recent conversations, or dictate a prompt in a browser that supports speech recognition.
 
@@ -43,7 +44,7 @@ Open the local URL printed by Vite, usually `http://127.0.0.1:5173`. Restart the
 | `GEMINI_MODEL` | Optional primary model override. The default is `gemini-3.8-flash`. |
 | `OMDB_API_KEY` | Optional. Provides IMDb scores and awards summaries where available. |
 | `MDBLIST_API_KEY` | Optional. Provides Letterboxd and Tomatometer scores and film links where available. It can also supply IMDb scores. |
-| `PROVIDER_METRICS` | Optional. Set to `1` to log provider timings and the server time to prepare the first batch of movie cards. |
+| `PROVIDER_METRICS` | Optional. Set to `1` to log provider timings, chat outcomes, and server time to the first movie cards. |
 
 The server keeps provider credentials out of the browser bundle. Movie lookup requires TMDB. Chat requires both Gemini and TMDB. Chat starts with Gemini 3.8 Flash by default and can retry once with Gemini 3.5 Flash-Lite after a timeout, temporary failure, or rate limit on the primary model. After a successful fallback, that server instance can use Flash-Lite for one minute and retry on the primary model if Flash-Lite becomes unavailable. Gemini attempts share a 40-second budget, and the full chat request has a 54-second deadline that includes film matching and ratings.
 
@@ -76,7 +77,17 @@ The React interface lives in `src/`. The Node API, provider requests, recommenda
 
 If the homepage loads and `/api/home` returns Vercel's `404 NOT_FOUND`, check the deployment's source commit and root directory. The Vercel project needs the repository root with the API function files alongside the Vite project.
 
-Vercel serves `api/` as Node functions, including the streaming search and chat endpoints. With `PROVIDER_METRICS=1`, the function logs include provider durations, the Gemini model used, and time to prepare the first movie cards. Provider timeouts, rate limits, and Gemini overload responses are always logged. Cache entries and rate counters live in each function instance. [Vite on Vercel](https://vercel.com/docs/frameworks/frontend/vite) · [Vercel environment variables](https://vercel.com/docs/environment-variables)
+Vercel serves `api/` as Node functions, including the streaming search and chat endpoints. Provider timeouts, rate limits, and Gemini overload responses are always logged. Cache entries and rate counters live in each function instance. [Vite on Vercel](https://vercel.com/docs/frameworks/frontend/vite) · [Vercel environment variables](https://vercel.com/docs/environment-variables)
+
+### Chat metrics
+
+Set `PROVIDER_METRICS=1` in the deployment environment to record successful requests alongside failures. From a linked checkout, summarize production logs with a current Vercel CLI. [Vercel CLI logs](https://vercel.com/docs/cli/logs)
+
+```sh
+vercel logs runtime --environment production --since 30m --query 'provider_request OR chat_request' --limit 10000 --json | node scripts/chat-metrics.js
+```
+
+The report shows the chat timeout rate for accepted requests, the Gemini timeout rate per provider attempt, and p50 and p95 server time to the first movie cards. Cancelled chats are counted separately. The script also accepts JSON lines from the local server.
 
 ## Credits
 
