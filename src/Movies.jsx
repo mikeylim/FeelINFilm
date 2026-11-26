@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Bookmark, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star, Trophy } from 'lucide-react'
-import { filmPath, languageName, linkOut, movieYear, runtimeText } from './utils'
+import { ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star, Trophy } from 'lucide-react'
+import { filmPath, languageName, linkOut, movieYear, parseCalendarDate, runtimeText } from './utils'
+import { WatchDateDialog } from './WatchDateDialog'
 import { useWatchlist } from './WatchlistState'
 
 export function Poster({ movie, className = '', eager = false }) {
@@ -60,17 +61,29 @@ export function WatchlistButton({ movie, overlay = false }) {
   </button>
 }
 
-export function WatchedButton({ movie, overlay = false }) {
-  const { watchedIds, toggleWatched } = useWatchlist()
+export function WatchedButton({ movie, overlay = false, removeDirectly = false }) {
+  const { watchedIds, watchedMovies, toggleWatched } = useWatchlist()
+  const [editor, setEditor] = useState(null)
   const watched = watchedIds.has(movie.id)
+  const entry = editor && watchedMovies.find(item => item.id === movie.id)
   const Icon = watched ? Check : Eye
   const style = overlay ? 'movie-save' : 'button detail-secondary watchlist-action'
-  const action = watched ? `Remove ${movie.title} from watched films` : `Mark ${movie.title} as watched`
-  return <button type="button" className={`${style}${watched ? ' is-saved' : ''}`}
-    aria-label={`Already watched ${movie.title}`} aria-pressed={watched} title={action} onClick={() => toggleWatched(movie)}>
-    <Icon size={16} aria-hidden="true" />
-    {!overlay && 'Already watched'}
-  </button>
+  const action = watched ? (removeDirectly ? `Remove ${movie.title} from watched films` : `Edit watched date for ${movie.title}`)
+    : `Mark ${movie.title} as watched`
+  function handleClick() {
+    if (!watched || removeDirectly) toggleWatched(movie)
+    if (!removeDirectly) setEditor(watched ? 'edit' : 'new')
+  }
+  return <>
+    <button type="button" className={`${style}${watched ? ' is-saved' : ''}`}
+      aria-label={`Already watched ${movie.title}`} aria-pressed={watched}
+      aria-haspopup={removeDirectly ? undefined : 'dialog'} title={action} onClick={handleClick}>
+      <Icon size={16} aria-hidden="true" />
+      {!overlay && 'Already watched'}
+    </button>
+    {entry && <WatchDateDialog movie={entry} onClose={() => setEditor(null)}
+      newlyMarked={editor === 'new'} allowRemove={editor === 'edit'} />}
+  </>
 }
 
 function OscarWins({ wins }) {
@@ -87,20 +100,43 @@ function OscarWins({ wins }) {
   </div>
 }
 
-export function MovieCard({ movie, open, withReason, eager }) {
+const shortListDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+const fullListDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+const watchDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' })
+
+function formatListDate(timestamp, includeYear) {
+  if (typeof timestamp !== 'string') return ''
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  const formatter = includeYear || date.getFullYear() !== new Date().getFullYear() ? fullListDate : shortListDate
+  return formatter.format(date)
+}
+
+export function MovieCard({ movie, open, withReason, eager, entryDate, onEditWatchDate }) {
   const facts = [movieYear(movie), runtimeText(movie.runtime), movie.genres?.[0] || languageName(movie.language)].filter(Boolean)
+  const timestamp = entryDate && movie[entryDate.field]
+  const actionDate = formatListDate(timestamp, entryDate?.includeYear)
+  const watchedOn = onEditWatchDate && parseCalendarDate(movie.watchedOn)
+  const viewingDate = watchedOn && watchDateFormat.format(watchedOn)
   return <article className="movie-card">
     <div className="poster-frame">
       <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={`Open ${movie.title}`}>
         <Poster movie={movie} eager={eager} />
       </a>
       <div className="movie-actions">
-        <WatchedButton movie={movie} overlay />
+        <WatchedButton movie={movie} overlay removeDirectly={Boolean(onEditWatchDate)} />
         <WatchlistButton movie={movie} overlay />
       </div>
     </div>
     <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{movie.title}</a>
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
+    {actionDate && <p className="movie-list-date">{entryDate.label} <time dateTime={timestamp}>{actionDate}</time></p>}
+    {onEditWatchDate && <button type="button" className="watch-date-button"
+      aria-label={viewingDate ? `Watched on ${viewingDate}. Edit date for ${movie.title}` : `Set date watched for ${movie.title}`}
+      title={viewingDate ? 'Edit date watched' : undefined} onClick={() => onEditWatchDate(movie.id)}>
+      <CalendarDays size={14} aria-hidden="true" />
+      <span>{viewingDate ? <>Watched on <time dateTime={movie.watchedOn}>{viewingDate}</time></> : 'Set date watched'}</span>
+    </button>}
     <Ratings movie={movie} />
     {movie.oscarWins?.length > 0 && <OscarWins wins={movie.oscarWins} />}
     {withReason && movie.reason && <p className="movie-reason">{movie.reason}</p>}
@@ -125,7 +161,7 @@ function sortMovies(movies, sort) {
   return compare ? [...movies].sort(compare) : movies
 }
 
-export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, eager, defaultOrder = 'Best match' }) {
+export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, eager, entryDate, onEditWatchDate, defaultOrder = 'Best match' }) {
   const list = useRef(null)
   const [sort, setSort] = useState('match')
   const [bounds, setBounds] = useState({ previous: false, next: false })
@@ -179,7 +215,7 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
     </div>
     <div className={grid ? 'movie-grid' : 'movie-carousel'} ref={list}>
       {ordered.map((movie, index) => <MovieCard key={movie.id} movie={movie} open={open}
-        withReason={withReason} eager={eager && index < 5} />)}
+        withReason={withReason} eager={eager && index < 5} entryDate={entryDate} onEditWatchDate={onEditWatchDate} />)}
     </div>
   </section>
 }

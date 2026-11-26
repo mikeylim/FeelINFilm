@@ -5,6 +5,7 @@ import { Chat } from './Chat'
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { Lookup } from './Lookup'
 import { FilmDetail } from './FilmDetail'
+import { Modal } from './Modal'
 import { isWatchedPath, watchedPath, Watchlist } from './Watchlist'
 import { WatchlistProvider, useWatchlist } from './WatchlistState'
 import { api, linkOut, morePrompt, movieYear, readPath, readStorage, requestRecommendations, saveStorage } from './utils'
@@ -48,24 +49,6 @@ function Sidebar({ path, open, close, expanded, newChat, threads, active, pick, 
       </div>
     </aside>
   </>
-}
-
-function Modal({ title, children, onClose }) {
-  const dialog = useRef(null)
-  useEffect(() => {
-    const node = dialog.current
-    node.showModal()
-    return () => { if (node.open) node.close() }
-  }, [])
-
-  return <dialog className="dialog" ref={dialog} aria-labelledby="dialog-title"
-    onCancel={event => { event.preventDefault(); onClose() }}
-    onClick={event => { if (event.target === event.currentTarget) onClose() }}>
-    <div className="dialog-inner">
-      <div className="dialog-header"><h2 id="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={21} /></button></div>
-      {children}
-    </div>
-  </dialog>
 }
 
 function About({ providers, onClose }) {
@@ -305,7 +288,7 @@ function App() {
           onSimilar={movie => submit(`I’m looking for films like ${movie.title}${movieYear(movie) ? ` (${movieYear(movie)})` : ''}. What should I watch?`, { fresh: true })} /> :
           isLookup ? <Lookup key={lookupQuery} query={lookupQuery} onSearch={query => navigate(query ? `/lookup?${new URLSearchParams({ q: query })}` : '/lookup')}
             open={open} /> :
-            isWatchlist ? <Watchlist watched={watchedTab} open={open} /> :
+            isWatchlist ? <Watchlist key={watchedTab ? 'watched' : 'saved'} watched={watchedTab} open={open} /> :
             <Chat thread={thread} pending={pending[activeId]} draft={draft} setDraft={setDraft} submit={submit}
               retry={retry} stop={() => requests.current.get(activeId)?.abort()} error={chatError} onFocusRef={focusComposer}
               onMore={() => submit(morePrompt, { more: true })} open={open} />}

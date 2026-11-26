@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Bookmark, Eye } from 'lucide-react'
 import { MovieShelf } from './Movies'
+import { WatchDateDialog } from './WatchDateDialog'
 import { useWatchlist } from './WatchlistState'
 
 const savedPath = '/watchlist'
@@ -13,7 +14,11 @@ export function isWatchedPath(path) {
 
 export function Watchlist({ watched, open }) {
   const { movies: savedMovies, watchedMovies } = useWatchlist()
-  const movies = watched ? watchedMovies : savedMovies
+  const [editingId, setEditingId] = useState(null)
+  const editing = watched && watchedMovies.find(movie => movie.id === editingId)
+  const entryDate = watched ? { field: 'markedWatchedAt', label: 'Watched', includeYear: true } : { field: 'savedAt', label: 'Saved' }
+  const actionTime = movie => Date.parse(movie[entryDate.field]) || 0
+  const movies = [...(watched ? watchedMovies : savedMovies)].sort((a, b) => actionTime(b) - actionTime(a))
   return <div className="content lookup-content">
     <header className="lookup-intro watchlist-intro">
       <div className="lookup-mark">{watched ? <Eye size={24} strokeWidth={1.7} aria-hidden="true" />
@@ -25,12 +30,14 @@ export function Watchlist({ watched, open }) {
         <a href={watchedPath} aria-current={watched ? 'page' : undefined} onClick={event => open(event, watchedPath)}>Watched</a>
       </nav>
     </header>
-    {movies.length ? <MovieShelf key={watched ? 'watched' : 'saved'} movies={movies} open={open}
-      heading={watched ? 'Watched films' : 'Saved films'} defaultOrder={watched ? 'Recently watched' : 'Recently saved'} grid sortEnabled eager /> :
+    {movies.length ? <MovieShelf movies={movies} open={open}
+      heading={watched ? 'Watched films' : 'Saved films'} defaultOrder={watched ? 'Recently watched' : 'Recently saved'}
+      entryDate={entryDate} onEditWatchDate={watched ? setEditingId : undefined} grid sortEnabled eager /> :
       <div className="empty-state">
         <h2>{watched ? 'No watched films yet' : 'Your watchlist is empty'}</h2>
         <p>{watched ? 'Use Already watched on a movie card or detail page.' : 'Save a film from search results, recommendations, or its detail page.'}</p>
         <a className="button secondary" href="/lookup" onClick={event => open(event, '/lookup')}>Explore movies</a>
       </div>}
+    {editing && <WatchDateDialog key={editing.id} movie={editing} onClose={() => setEditingId(null)} />}
   </div>
 }

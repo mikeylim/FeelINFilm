@@ -11,6 +11,7 @@ FeelINFilm (FIF) helps you decide what to watch. Describe your mood, a film you 
 - **Verified Oscar picks.** Direct winner questions with a ceremony year and category use the Academy records. Awards recommendations check each film’s IMDb ID against the requested ceremony and category. Cards show the exact wins and link to the ceremony.
 - **Guest watchlist.** Save films from lookup, recommendations, or detail pages and revisit them from the sidebar.
 - **Watched films.** Mark titles as already watched from movie cards or detail pages and open **Watched** from the sidebar. Chat excludes watched films from recommendations by default, including when you ask for **More picks**. You can turn off the filter in the composer.
+- **List dates.** Watchlist and Watched record their own action timestamps. Each list displays the dates in your timezone and sorts by its action date. Older entries keep their original order after dated entries. Select **Already watched** on a card or detail page to log a film and pick the day you saw it, or choose **Skip date**. You can also edit the date from the Watched list.
 - **Browser-local preferences.** Switch between light and dark themes, reopen recent conversations, or dictate a prompt in a browser that supports speech recognition.
 
 ## Quick start

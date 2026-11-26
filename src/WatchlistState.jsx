@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { readStorage, saveStorage } from './utils'
+import { parseCalendarDate, readStorage, saveStorage } from './utils'
 
 const WatchlistContext = createContext(null)
 
@@ -48,14 +48,15 @@ function useLocalValue(key, read) {
   return [value, setValue]
 }
 
-function useFilmList(key) {
+function useFilmList(key, timestampKey) {
   const [movies, setMovies] = useLocalValue(key, readFilms)
 
   const toggle = useCallback(movie => {
+    const timestamp = new Date().toISOString()
     setMovies(current => current.some(item => item.id === movie.id)
       ? current.filter(item => item.id !== movie.id)
-      : [filmCard(movie), ...current])
-  }, [setMovies])
+      : [{ ...filmCard(movie), [timestampKey]: timestamp }, ...current])
+  }, [setMovies, timestampKey])
 
   const refresh = useCallback(byId => {
     setMovies(current => {
@@ -63,7 +64,7 @@ function useFilmList(key) {
       const next = current.map(movie => {
         const update = byId.get(movie.id)
         if (!update) return movie
-        const updated = filmCard(update, movie)
+        const updated = { ...movie, ...filmCard(update, movie) }
         if (JSON.stringify(movie) === JSON.stringify(updated)) return movie
         changed = true
         return updated
@@ -72,15 +73,24 @@ function useFilmList(key) {
     })
   }, [setMovies])
 
-  return { movies, toggle, refresh }
+  return { movies, setMovies, toggle, refresh }
 }
 
 const readExcludeWatched = key => readStorage(key, true) !== false
 
 export function WatchlistProvider({ children }) {
-  const { movies, toggle, refresh: refreshSaved } = useFilmList('watchlist')
-  const { movies: watchedMovies, toggle: toggleWatched, refresh: refreshWatched } = useFilmList('watched')
+  const { movies, toggle, refresh: refreshSaved } = useFilmList('watchlist', 'savedAt')
+  const {
+    movies: watchedMovies, setMovies: setWatchedMovies, toggle: toggleWatched, refresh: refreshWatched
+  } = useFilmList('watched', 'markedWatchedAt')
   const [excludeWatched, setExcludeWatched] = useLocalValue('excludeWatched', readExcludeWatched)
+
+  const setWatchedOn = useCallback((id, date) => {
+    if (date && !parseCalendarDate(date)) return
+    const watchedOn = date || undefined
+    setWatchedMovies(current => current.map(movie => movie.id === id && movie.watchedOn !== watchedOn
+      ? { ...movie, watchedOn } : movie))
+  }, [setWatchedMovies])
 
   const refresh = useCallback(updates => {
     const byId = new Map(updates.map(movie => [movie.id, movie]))
@@ -91,7 +101,7 @@ export function WatchlistProvider({ children }) {
   const savedIds = new Set(movies.map(movie => movie.id))
   const watchedIds = new Set(watchedMovies.map(movie => movie.id))
   return <WatchlistContext.Provider value={{
-    movies, savedIds, toggle, watchedMovies, watchedIds, toggleWatched, excludeWatched, setExcludeWatched, refresh
+    movies, savedIds, toggle, watchedMovies, watchedIds, toggleWatched, setWatchedOn, excludeWatched, setExcludeWatched, refresh
   }}>{children}</WatchlistContext.Provider>
 }
 

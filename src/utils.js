@@ -94,6 +94,12 @@ export function releaseDate(date) {
   return Number.isNaN(value.valueOf()) ? date : new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'UTC' }).format(value)
 }
 
+export function parseCalendarDate(date) {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+  const value = new Date(`${date}T00:00:00Z`)
+  return !Number.isNaN(value.getTime()) && value.toISOString().slice(0, 10) === date ? value : null
+}
+
 export const filmPath = movie => `/movie/${movie.id}`
 export const linkOut = { target: '_blank', rel: 'noopener noreferrer' }
 export const readPath = () => window.location.pathname + window.location.search

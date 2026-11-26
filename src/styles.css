@@ -220,7 +220,13 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .poster-fallback svg { margin: 0 auto; }
 .movie-title { display: block; overflow-wrap: anywhere; margin: 9px 0 2px; font-weight: 650; line-height: 1.28; font-size: .965rem; }
 .movie-title:hover, .text-link:hover { color: var(--accent-hover); }
-.movie-facts { color: var(--muted); font-size: .79rem; line-height: 1.4; }
+.movie-facts, .movie-list-date { color: var(--muted); font-size: .79rem; line-height: 1.4; }
+.movie-list-date { margin-top: 3px; }
+.watch-date-button {
+  min-height: 28px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent);
+  border: 0; padding: 4px 0; background: transparent; font-size: .79rem; line-height: 1.35; text-align: left;
+}
+.watch-date-button:hover span { text-decoration: underline; text-underline-offset: 3px; }
 .movie-reason { color: var(--muted); font-size: .84rem; line-height: 1.45; margin: 9px 0 0; }
 .movie-awards { display: grid; gap: 6px; margin-top: 9px; }
 .movie-awards a {
@@ -353,6 +359,15 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .dialog-header h2 { font-family: var(--display); font-weight: 400; font-size: 2.3rem; line-height: 1; }
 .dialog p { color: var(--muted); line-height: 1.55; }
+.watch-date-form { display: grid; gap: 7px; margin-top: 14px; }
+.watch-date-form label { color: var(--muted); font-size: .9rem; }
+.watch-date-form input {
+  min-height: 41px; min-width: 0; width: 100%; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text);
+}
+.watch-date-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 9px; }
+.clear-watch-date { margin-right: auto; }
+.watch-date-actions button:disabled { opacity: .55; }
 .provider-status { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
 .provider-status div { display: flex; justify-content: space-between; padding: 6px 0; gap: 8px; font-size: .85rem; }
 .provider-status div + div { border-top: 1px solid var(--line-soft); }
