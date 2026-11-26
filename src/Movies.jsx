@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Bookmark, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star } from 'lucide-react'
+import { ArrowUpRight, Bookmark, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star, Trophy } from 'lucide-react'
 import { filmPath, languageName, linkOut, movieYear, runtimeText } from './utils'
 import { useWatchlist } from './WatchlistState'
 
@@ -73,6 +73,20 @@ export function WatchedButton({ movie, overlay = false }) {
   </button>
 }
 
+function OscarWins({ wins }) {
+  const ceremonies = new Map()
+  for (const win of wins) {
+    if (!ceremonies.has(win.ceremony)) ceremonies.set(win.ceremony, { ...win, categories: [] })
+    ceremonies.get(win.ceremony).categories.push(win.category)
+  }
+  return <div className="movie-awards" aria-label="Verified Academy Award wins">
+    {[...ceremonies.values()].map(({ ceremony, year, source, categories }) => <a key={ceremony} href={source} {...linkOut}>
+      <Trophy size={14} aria-hidden="true" />
+      <span><strong>{year} Oscars</strong><span>{categories.join(' · ')}</span></span>
+    </a>)}
+  </div>
+}
+
 export function MovieCard({ movie, open, withReason, eager }) {
   const facts = [movieYear(movie), runtimeText(movie.runtime), movie.genres?.[0] || languageName(movie.language)].filter(Boolean)
   return <article className="movie-card">
@@ -88,6 +102,7 @@ export function MovieCard({ movie, open, withReason, eager }) {
     <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{movie.title}</a>
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
     <Ratings movie={movie} />
+    {movie.oscarWins?.length > 0 && <OscarWins wins={movie.oscarWins} />}
     {withReason && movie.reason && <p className="movie-reason">{movie.reason}</p>}
   </article>
 }

@@ -222,6 +222,16 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .movie-title:hover, .text-link:hover { color: var(--accent-hover); }
 .movie-facts { color: var(--muted); font-size: .79rem; line-height: 1.4; }
 .movie-reason { color: var(--muted); font-size: .84rem; line-height: 1.45; margin: 9px 0 0; }
+.movie-awards { display: grid; gap: 6px; margin-top: 9px; }
+.movie-awards a {
+  display: flex; align-items: flex-start; gap: 6px; padding: 6px 7px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+  color: var(--muted); font-size: .79rem; line-height: 1.35; overflow-wrap: anywhere;
+}
+.movie-awards a:hover { background: var(--raised); }
+.movie-awards svg, .movie-awards strong { color: var(--accent); }
+.movie-awards svg { margin-top: 1px; }
+.movie-awards strong { display: block; margin-bottom: 2px; font-weight: 650; }
 .film-ratings { margin-top: 9px; }
 .ratings { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .ratings > a {
@@ -245,6 +255,7 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 
 .chat-content { padding-top: 30px; }
 .conversation { min-height: calc(100dvh - var(--topbar-height) - 175px); padding-bottom: 12px; }
+.conversation :is(.thinking, .chat-error) { scroll-margin-top: calc(var(--topbar-height) + 22px); }
 .user-turn { display: flex; justify-content: flex-end; padding: 0 0 20px; scroll-margin-top: calc(var(--topbar-height) + 22px); }
 .user-turn p { max-width: min(76%, 690px); padding: 11px 15px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--selected); line-height: 1.5; }
 .assistant-turn { padding: 0 0 24px; margin-bottom: 18px; border-bottom: 1px solid var(--line-soft); scroll-margin-top: calc(var(--topbar-height) + 22px); }

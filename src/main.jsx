@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Bookmark, Film, History, Info, Menu, Moon, Plus, Search, Sun, X } from 'lucide-react'
+import { Bookmark, Eye, Film, History, Info, Menu, Moon, Plus, Search, Sun, X } from 'lucide-react'
 import { Chat } from './Chat'
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { Lookup } from './Lookup'
 import { FilmDetail } from './FilmDetail'
-import { Watchlist } from './Watchlist'
+import { isWatchedPath, watchedPath, Watchlist } from './Watchlist'
 import { WatchlistProvider, useWatchlist } from './WatchlistState'
 import { api, linkOut, morePrompt, movieYear, readPath, readStorage, requestRecommendations, saveStorage } from './utils'
 import './styles.css'
@@ -13,6 +13,8 @@ import './styles.css'
 function Sidebar({ path, open, close, expanded, newChat, threads, active, pick, remove, theme, toggleTheme, onAbout }) {
   const lookup = path.startsWith('/lookup')
   const watchlist = path.split('?')[0] === '/watchlist'
+  const watched = isWatchedPath(path)
+  const saved = watchlist && !watched
   return <>
     {expanded && <button className="sidebar-overlay" aria-label="Close navigation" onClick={close} />}
     <aside className={`sidebar${expanded ? ' sidebar-open' : ''}`} aria-label="Main navigation">
@@ -27,7 +29,8 @@ function Sidebar({ path, open, close, expanded, newChat, threads, active, pick, 
       <nav className="sidebar-nav">
         <a className={lookup || watchlist ? 'nav-item' : 'nav-item selected'} aria-current={!lookup && !watchlist ? 'page' : undefined} href="/" onClick={event => open(event, '/')}><FilmGuideIcon /> AI movie chat</a>
         <a className={lookup ? 'nav-item selected' : 'nav-item'} aria-current={lookup ? 'page' : undefined} href="/lookup" onClick={event => open(event, '/lookup')}><Search size={18} /> Movie lookup</a>
-        <a className={watchlist ? 'nav-item selected' : 'nav-item'} aria-current={watchlist ? 'page' : undefined} href="/watchlist" onClick={event => open(event, '/watchlist')}><Bookmark size={18} /> Watchlist</a>
+        <a className={saved ? 'nav-item selected' : 'nav-item'} aria-current={saved ? 'page' : undefined} href="/watchlist" onClick={event => open(event, '/watchlist')}><Bookmark size={18} /> Watchlist</a>
+        <a className={watched ? 'nav-item selected' : 'nav-item'} aria-current={watched ? 'page' : undefined} href={watchedPath} onClick={event => open(event, watchedPath)}><Eye size={18} /> Watched</a>
       </nav>
       <section className="sidebar-history" aria-label="Recent chats">
         <h2>Recent chats</h2>
@@ -115,7 +118,7 @@ function App() {
 
   const isLookup = path.startsWith('/lookup')
   const isWatchlist = path.split('?')[0] === '/watchlist'
-  const watchedTab = isWatchlist && new URLSearchParams(path.split('?')[1]).get('tab') === 'watched'
+  const watchedTab = isWatchedPath(path)
   const filmId = path.match(/^\/movie\/(\d+)(?:\?|$)/)?.[1]
   const lookupQuery = isLookup ? new URL(path, window.location.origin).searchParams.get('q') || '' : ''
   const thread = threads.find(item => item.id === activeId)
@@ -148,9 +151,9 @@ function App() {
   useEffect(() => { saveStorage('active', activeId, 'sessionStorage') }, [activeId])
 
   useEffect(() => {
-    const title = filmTitle || (isLookup ? 'Movie lookup' : isWatchlist ? 'Watchlist' : '')
+    const title = filmTitle || (isLookup ? 'Movie lookup' : watchedTab ? 'Watched' : isWatchlist ? 'Watchlist' : '')
     document.title = title ? `${title} · FeelINFilm` : 'FeelINFilm · Find your next film'
-  }, [isLookup, isWatchlist, filmTitle])
+  }, [isLookup, isWatchlist, watchedTab, filmTitle])
 
   useEffect(() => {
     if (!expanded) return
@@ -271,7 +274,7 @@ function App() {
     sendTurn(id, messages, exclude)
   }
 
-  const label = filmId ? filmTitle || 'Film details' : isLookup ? 'Movie lookup' : isWatchlist ? 'Watchlist' : 'AI movie chat'
+  const label = filmId ? filmTitle || 'Film details' : isLookup ? 'Movie lookup' : watchedTab ? 'Watched' : isWatchlist ? 'Watchlist' : 'AI movie chat'
   const live = providers?.gemini && providers?.tmdb
   const interrupted = !pending[activeId] && thread?.messages.at(-1)?.role === 'user'
   const chatError = errors[activeId]?.message || (interrupted ? 'The last reply was interrupted.' : '')
@@ -289,7 +292,7 @@ function App() {
       <header className="topbar">
         <div className="topbar-title">
           <button className="icon-button mobile-menu" aria-label="Open navigation" aria-expanded={expanded} onClick={() => setExpanded(true)}><Menu size={21} /></button>
-          {filmId ? <Film size={17} /> : isLookup ? <Search size={17} /> : isWatchlist ? <Bookmark size={17} /> : <FilmGuideIcon size={17} />}
+          {filmId ? <Film size={17} /> : isLookup ? <Search size={17} /> : watchedTab ? <Eye size={17} /> : isWatchlist ? <Bookmark size={17} /> : <FilmGuideIcon size={17} />}
           <span>{label}</span>
         </div>
         {providers && !isWatchlist && <button className="connection-badge" onClick={() => setAboutOpen(true)}>

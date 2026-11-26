@@ -144,7 +144,7 @@ export async function handleApi(request, response) {
         filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria),
         watchedIds, watchedTitles
       }
-      requireRecommendations()
+      requireRecommendations(data.messages, options)
       return await replyWith(request, response, (emit, signal) =>
         withinChatDeadline(chatSignal => liveRecommendations(data.messages, excluded, emit, chatSignal, options), signal))
     }

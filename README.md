@@ -5,11 +5,12 @@ FeelINFilm (FIF) helps you decide what to watch. Describe your mood, a film you 
 ## Features
 
 - **Conversational recommendations.** Gemini uses the current conversation to suggest films. FeelINFilm matches the picks against TMDB and checks supported constraints against the available data.
-- **Refine your picks.** Ask a follow-up about genre, language, runtime, or release era. **More picks** keeps the current criteria and skips titles already suggested.
+- **Refine your picks.** Chat aims for three or four films for quick or narrow requests and five or six for typical requests. Ask for a longer list or a specific number to get up to ten verified films. **More picks** keeps the current criteria and skips titles already suggested.
 - **Movie lookup.** Search by title or browse weekly trending films. Cards appear as soon as TMDB returns them, and ratings fill in afterward. Open a detail page for cast, crew, release information, awards summaries, and trailers where available.
 - **Linked ratings.** Compare IMDb, Rotten Tomatoes, and Letterboxd scores in compact badges on movie cards and detail pages. A dash marks an unavailable score.
+- **Verified Oscar picks.** Direct winner questions with a ceremony year and category use the Academy records. Awards recommendations check each film’s IMDb ID against the requested ceremony and category. Cards show the exact wins and link to the ceremony.
 - **Guest watchlist.** Save films from lookup, recommendations, or detail pages and revisit them from the sidebar.
-- **Watched films.** Mark titles as already watched from movie cards or detail pages and revisit them under **Watchlist → Watched**. Chat excludes watched films by default, including when you ask for **More picks**. You can turn off the filter in the composer.
+- **Watched films.** Mark titles as already watched from movie cards or detail pages and open **Watched** from the sidebar. Chat excludes watched films from recommendations by default, including when you ask for **More picks**. You can turn off the filter in the composer.
 - **Browser-local preferences.** Switch between light and dark themes, reopen recent conversations, or dictate a prompt in a browser that supports speech recognition.
 
 ## Quick start
@@ -81,3 +82,5 @@ Vercel serves `api/` as Node functions, including the streaming search and chat 
 Film data and posters come from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB. The bundled TMDB mark is by Travis Bell under CC BY-SA 4.0. [TMDB](https://www.themoviedb.org) · [Mark attribution](https://commons.wikimedia.org/wiki/File:Tmdb.new.logo.svg) · [License](https://creativecommons.org/licenses/by-sa/4.0/)
 
 OMDb and MDBList supply additional ratings and awards data when configured. The hero artwork was generated for this project. [OMDb](https://www.omdbapi.com/) · [MDBList](https://mdblist.com/) · [Font licenses](public/fonts/)
+
+Oscar verification uses a bundled export of the Academy Awards Database covering film-linked wins through the 98th ceremony in 2026. The export includes IMDb identifiers to distinguish films with the same title. Refresh it with `python3 scripts/build-oscar-winners.py /path/to/oscars.csv` after reviewing a newer upstream export against the Academy’s results. [Academy Awards Database](https://awardsdatabase.oscars.org/) · [Pinned export](https://github.com/DLu/oscar_data/tree/c5e9716b7e020e70205d6b95f5a5678526c1b45f) · [BSD 2-Clause license](server/data/oscar-data-LICENSE.txt)

@@ -154,6 +154,12 @@ export async function liveDetails(id) {
   return { ...movie, similar }
 }
 
+export async function movieByImdb(imdbId) {
+  const result = await tmdb(`/find/${imdbId}`, { external_source: 'imdb_id' })
+  const movie = result.movie_results?.find(item => !item.adult)
+  return movie ? { ...summary(movie), imdbId } : null
+}
+
 export async function resolveFilm(candidate, signal) {
   const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
   const original = typeof candidate.originalTitle === 'string' ? candidate.originalTitle.trim() : ''

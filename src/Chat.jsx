@@ -118,45 +118,81 @@ export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, er
   const messages = pending?.reply ? [...savedMessages, pending.reply] : savedMessages
   const busy = Boolean(pending)
   const active = messages.length > 0
-  const chatEnd = useRef(null)
+  const lastPrompt = useRef(null)
   const lastReply = useRef(null)
+  const turnStatus = useRef(null)
+  const composerArea = useRef(null)
+  const scroll = useRef({ turn: '', busy: false, mode: 'turn', top: 0 })
   const last = messages.at(-1)
+  const latestPrompt = savedMessages.findLast(message => message.role === 'user')
+  const turn = active ? `${thread?.id}:${latestPrompt?.id || last.id}` : ''
 
   useEffect(() => {
     if (!active) return
+    const state = scroll.current
+    const rememberScroll = () => {
+      const page = document.scrollingElement
+      const top = window.scrollY
+      // Ignore scroll events from positioning the latest turn.
+      if (Math.abs(top - state.top) < 2) return
+      state.top = top
+      state.mode = page.scrollHeight - page.clientHeight - top < 48 ? 'bottom' : 'paused'
+    }
+    window.addEventListener('scroll', rememberScroll, { passive: true })
+    return () => window.removeEventListener('scroll', rememberScroll)
+  }, [active])
+
+  useEffect(() => {
+    const state = scroll.current
+    if (state.turn !== turn || (busy && !state.busy)) state.mode = 'turn'
+    state.turn = turn
+    state.busy = busy
+    if (!active || state.mode === 'paused') return
+
     const frame = requestAnimationFrame(() => {
-      if (last.role === 'assistant') {
-        const turn = lastReply.current?.previousElementSibling || lastReply.current
-        turn?.scrollIntoView({ block: 'start', behavior: 'instant' })
+      if (state.mode === 'paused') return
+      if (state.mode === 'bottom') {
+        window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' })
+      } else {
+        const reply = lastReply.current || turnStatus.current
+        const anchor = lastPrompt.current || reply
+        anchor?.scrollIntoView({ block: 'start', behavior: 'instant' })
+        if (reply && reply !== anchor) {
+          const bounds = reply.getBoundingClientRect()
+          const composerTop = composerArea.current.getBoundingClientRect().top
+          if (bounds.top + Math.min(bounds.height, 80) > composerTop) {
+            reply.scrollIntoView({ block: 'start', behavior: 'instant' })
+          }
+        }
       }
-      else chatEnd.current?.scrollIntoView({ block: 'end', behavior: 'instant' })
+      state.top = window.scrollY
     })
     return () => cancelAnimationFrame(frame)
-  }, [active, thread?.id, last?.id, last?.role])
+  }, [active, turn, last, busy, pending?.stage, error])
 
   const composer = <Composer draft={draft} setDraft={setDraft} onSend={submit} stop={stop} busy={busy} onFocusRef={onFocusRef} active={active} />
   return active ? <div className="content chat-content">
     <h1 className="sr-only">Movie recommendation chat</h1>
     <div className="conversation" aria-label="Movie conversation">
       {messages.map((message, index) => message.role === 'user'
-        ? <div className="user-turn" key={message.id}><p>{message.display || message.text}</p></div>
+        ? <div className="user-turn" key={message.id} ref={message === latestPrompt ? lastPrompt : undefined}><p>{message.display || message.text}</p></div>
         : <section className="assistant-turn" key={message.id} ref={index === messages.length - 1 ? lastReply : undefined} aria-label="FeelINFilm response">
           <div className="assistant-identity" title={message.model}><span><FilmGuideIcon /></span> {message.source === 'preview' ? 'Saved preview reply' : 'FeelINFilm'}</div>
           <p className="assistant-copy">{message.text}</p>
           {message.awardSource && <a className="text-link award-source" href={message.awardSource} {...linkOut}>Check the official Academy results</a>}
-          <MovieShelf movies={message.movies || []} heading={message.movies?.length ? 'Your recommendations' : ''}
+          <MovieShelf movies={message.movies || []} heading={message.movies?.length
+            ? (message.source === 'academy' ? 'Oscar results' : 'Your recommendations') : ''}
             sortEnabled withReason eager={index === messages.length - 1} open={open} />
-          {index === messages.length - 1 && !busy && ((message.movies?.length || 0) > 0 || message.followUps?.length > 0) &&
+          {index === messages.length - 1 && !busy && message.source !== 'academy' && ((message.movies?.length || 0) > 0 || message.followUps?.length > 0) &&
             <div className="followups">
               {message.movies?.length > 0 && <button className="prompt-chip more-picks" onClick={onMore}><Plus size={16} /> More picks</button>}
               {message.followUps?.map((text, index) => <button key={`${index}-${text}`} className="prompt-chip" onClick={() => submit(text)}>{text}</button>)}
             </div>}
         </section>)}
-      {busy && <div className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {progress[pending.stage] || 'Curating your film recommendations'}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
-      {error && <div className="chat-error" role="alert"><p>{error}</p><button className="button secondary" onClick={retry}>Try again</button></div>}
-      <div ref={chatEnd} />
+      {busy && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {progress[pending.stage] || 'Curating your film recommendations'}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
+      {error && <div ref={turnStatus} className="chat-error" role="alert"><p>{error}</p><button className="button secondary" onClick={retry}>Try again</button></div>}
     </div>
-    <div className="sticky-composer">{composer}</div>
+    <div className="sticky-composer" ref={composerArea}>{composer}</div>
   </div> : <div className="content home-content">
     <section className="hero">
       <div className="hero-copy">
