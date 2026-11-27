@@ -1,9 +1,11 @@
+import { useLanguage } from './Language'
 import React, { useId, useState } from 'react'
 import { Modal } from './Modal'
-import { parseCalendarDate } from './utils'
+import { movieTitle, parseCalendarDate } from './utils'
 import { useWatchlist } from './WatchlistState'
 
 export function WatchDateDialog({ movie, onClose, newlyMarked = false, allowRemove = false }) {
+  const { locale, t } = useLanguage()
   const { setWatchedOn, toggleWatched } = useWatchlist()
   const inputId = useId()
   const [date, setDate] = useState(() => parseCalendarDate(movie.watchedOn) ? movie.watchedOn : '')
@@ -14,22 +16,22 @@ export function WatchDateDialog({ movie, onClose, newlyMarked = false, allowRemo
     onClose()
   }
 
-  return <Modal title="Date watched" onClose={onClose}>
-    <p>{movie.title}</p>
+  return <Modal title={t('Date watched')} onClose={onClose}>
+    <p>{movieTitle(movie, locale)}</p>
     <form className="watch-date-form" onSubmit={event => {
       event.preventDefault()
       if (valid) saveDate(date)
     }}>
-      <label htmlFor={inputId}>Viewing date</label>
+      <label htmlFor={inputId}>{t('Viewing date')}</label>
       <input id={inputId} type="date" required value={date} onChange={event => setDate(event.target.value)} />
       <div className="watch-date-actions">
-        {movie.watchedOn && <button type="button" className="button secondary clear-watch-date" onClick={() => saveDate('')}>Clear date</button>}
+        {movie.watchedOn && <button type="button" className="button secondary clear-watch-date" onClick={() => saveDate('')}>{t('Clear date')}</button>}
         {allowRemove && <button type="button" className="button secondary" onClick={() => {
           toggleWatched(movie)
           onClose()
-        }}>Remove from Watched</button>}
-        <button type="button" className="button secondary" onClick={onClose}>{newlyMarked ? 'Skip date' : 'Cancel'}</button>
-        <button className="button primary" type="submit" disabled={!valid}>Save date</button>
+        }}>{t('Remove from Watched')}</button>}
+        <button type="button" className="button secondary" onClick={onClose}>{newlyMarked ? t('Skip date') : t('Cancel')}</button>
+        <button className="button primary" type="submit" disabled={!valid}>{t('Save date')}</button>
       </div>
     </form>
   </Modal>

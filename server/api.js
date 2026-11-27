@@ -1,10 +1,13 @@
 import { isIP } from 'node:net'
+import { appLocale, inLanguage } from '../shared/locale.js'
 import { liveDetails, liveSearch, liveTrending, providers, requireTmdb } from './providers.js'
 import { liveRecommendations, requireRecommendations } from './recommendations.js'
 import { logMetric, RequestError } from './upstream.js'
 
 const maxBodySize = 120_000
 const chatRequests = new Map()
+const excessiveBody = { en: 'This message is too large.', ko: '메시지가 너무 깁니다.', fr: 'Ce message est trop volumineux.' }
+const invalidBody = { en: 'This request contains invalid JSON.', ko: '요청의 JSON 형식이 올바르지 않습니다.', fr: 'Le contenu JSON de cette demande est invalide.' }
 export const sendJson = (response, status, body) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
   response.end(JSON.stringify(body))
@@ -12,22 +15,22 @@ export const sendJson = (response, status, body) => {
 
 const requestBody = async request => {
   if (!(request.headers['content-type'] || '').startsWith('application/json')) {
-    throw new RequestError('Send the request as JSON.', 415)
+    throw new RequestError({ en: 'Send the request as JSON.', ko: '요청을 JSON 형식으로 보내 주세요.', fr: 'Envoyez la demande au format JSON.' }, 415)
   }
   if (request.readableEnded && Object.hasOwn(request, 'body')) {
     // Vercel can parse the JSON before handing the request to the function.
     if (Number(request.headers['content-length']) > maxBodySize) {
-      throw new RequestError('This message is too large.', 413)
+      throw new RequestError(excessiveBody, 413)
     }
     let body
     try {
       body = request.body
       if (body === undefined) throw new Error('Missing JSON body')
     } catch {
-      throw new RequestError('This request contains invalid JSON.', 400)
+      throw new RequestError(invalidBody, 400)
     }
     if (Buffer.byteLength(JSON.stringify(body)) > maxBodySize) {
-      throw new RequestError('This message is too large.', 413)
+      throw new RequestError(excessiveBody, 413)
     }
     return body
   }
@@ -37,14 +40,14 @@ const requestBody = async request => {
     size += chunk.length
     if (size > maxBodySize) {
       request.resume()
-      throw new RequestError('This message is too large.', 413)
+      throw new RequestError(excessiveBody, 413)
     }
     chunks.push(chunk)
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'))
   } catch {
-    throw new RequestError('This request contains invalid JSON.', 400)
+    throw new RequestError(invalidBody, 400)
   }
 }
 
@@ -57,7 +60,7 @@ function chatLimit(request) {
   const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : ''
   const client = isIP(ip) ? ip : request.socket.remoteAddress
   const entry = chatRequests.get(client) || { count: 0, until: now + 60_000 }
-  if (entry.count >= 12) throw new RequestError('You’ve sent several requests in a short time. Try again in a minute.', 429)
+  if (entry.count >= 12) throw new RequestError({ en: 'You’ve sent several requests in a short time. Try again in a minute.', ko: '짧은 시간에 요청을 여러 번 보냈습니다. 1분 후에 다시 시도해 주세요.', fr: 'Vous avez envoyé plusieurs demandes en peu de temps. Réessayez dans une minute.' }, 429)
   entry.count += 1
   chatRequests.set(client, entry)
 }
@@ -89,7 +92,7 @@ async function withinChatDeadline(load, signal) {
   let timer
   const timedOut = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      const error = new RequestError('Your recommendations are taking longer than usual. Try again shortly.', 504)
+      const error = new RequestError({ en: 'Your recommendations are taking longer than usual. Try again shortly.', ko: '영화 추천이 평소보다 오래 걸리고 있습니다. 잠시 후 다시 시도해 주세요.', fr: 'Vos recommandations prennent plus de temps que prévu. Réessayez dans un instant.' }, 504)
       deadline.abort(error)
       reject(error)
     }, 54_000)
@@ -133,6 +136,7 @@ async function chatReply(messages, excluded, options, emit, signal) {
 }
 
 export async function handleApi(request, response) {
+  const locale = appLocale(request.headers['accept-language'])
   try {
     const url = new URL(request.url, 'http://localhost')
     const { pathname, searchParams } = url
@@ -141,20 +145,20 @@ export async function handleApi(request, response) {
     }
     if (request.method === 'GET' && pathname === '/api/films/trending') {
       requireTmdb()
-      return await replyWith(request, response, liveTrending)
+      return await replyWith(request, response, (emit, signal) => liveTrending(emit, signal, locale))
     }
     if (request.method === 'GET' && pathname === '/api/films') {
       const query = searchParams.get('query')?.trim()
       const page = Number(searchParams.get('page') || 1)
       if (!query || query.length > 120 || !Number.isInteger(page) || page < 1 || page > 500) {
-        throw new RequestError('Enter a movie title of up to 120 characters.', 400)
+        throw new RequestError({ en: 'Enter a movie title of up to 120 characters.', ko: '영화 제목을 120자 이내로 입력해 주세요.', fr: 'Saisissez un titre de film de 120 caractères maximum.' }, 400)
       }
       requireTmdb()
-      return await replyWith(request, response, (emit, signal) => liveSearch(query, page, emit, signal))
+      return await replyWith(request, response, (emit, signal) => liveSearch(query, page, emit, signal, locale))
     }
     const detail = pathname.match(/^\/api\/films\/(\d{1,10})$/)
     if (request.method === 'GET' && detail) {
-      return sendJson(response, 200, await liveDetails(Number(detail[1])))
+      return sendJson(response, 200, await liveDetails(Number(detail[1]), locale))
     }
     if (request.method === 'POST' && pathname === '/api/chat') {
       chatLimit(request)
@@ -163,7 +167,7 @@ export async function handleApi(request, response) {
         data.messages.at(-1)?.role !== 'user' ||
         data.messages.some(message => !['user', 'assistant'].includes(message?.role) ||
           typeof message.text !== 'string' || !message.text.trim() || message.text.length > 1600)) {
-        throw new RequestError('Send a movie request of up to 1,600 characters.', 400)
+        throw new RequestError({ en: 'Send a movie request of up to 1,600 characters.', ko: '영화 추천 요청을 1,600자 이내로 입력해 주세요.', fr: 'Saisissez une demande de 1 600 caractères maximum.' }, 400)
       }
       const excluded = Array.isArray(data.exclude) ? data.exclude.slice(-75).filter(movie =>
         Number.isSafeInteger(movie?.id) && typeof movie.title === 'string' && movie.title.length <= 180) : []
@@ -172,16 +176,18 @@ export async function handleApi(request, response) {
         .filter(title => typeof title === 'string' && title.trim() && title.length <= 180) : []
       const options = {
         filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria),
-        watchedIds, watchedTitles
+        watchedIds, watchedTitles, locale
       }
       requireRecommendations(data.messages, options)
       return await replyWith(request, response, (emit, signal) => chatReply(data.messages, excluded, options, emit, signal))
     }
-    throw new RequestError('This API endpoint could not be found.', 404)
+    throw new RequestError({ en: 'This API endpoint could not be found.', ko: '요청하신 API를 찾을 수 없습니다.', fr: 'Cette route de l’API est introuvable.' }, 404)
   } catch (error) {
     if (response.destroyed) return
     if (!(error instanceof RequestError)) console.error('Unexpected API error:', error.name)
-    const message = error instanceof RequestError ? error.message : 'Something went wrong. Try again.'
+    const message = inLanguage(locale, error instanceof RequestError ? error.messages : {
+      en: 'Something went wrong. Try again.', ko: '문제가 발생했습니다. 다시 시도해 주세요.', fr: 'Une erreur est survenue. Réessayez.'
+    })
     if (response.headersSent) return response.end(eventLine({ type: 'error', error: message }))
     sendJson(response, error.status || 500, { error: message })
   }

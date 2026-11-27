@@ -1,4 +1,5 @@
 import winnerRows from './data/oscar-winners.json' with { type: 'json' }
+import { academyCategories } from '../shared/locale.js'
 import { normalize } from './providers.js'
 
 // The Academy archive uses distinct page years for ceremonies held in the same calendar year.
@@ -74,7 +75,58 @@ export function requestsOscarWins(filters) {
     filters.oscarEndYear || filters.oscarCategories?.length)
 }
 
+function koreanOscarRequest(prompt) {
+  const text = prompt?.normalize('NFKC') || ''
+  if (!/오스카|아카데미/.test(text) || /후보|노미네이트|제외/.test(text)) return null
+  const mentionedYears = [...new Set(text.match(/(?<!\d)\d{4}(?!\d)/g))]
+  const releaseYear = /\d{4}\s*(?:년\s*대|(?:년(?:에|도(?:에)?)?)?\s*(?:개봉|제작|공개))/.test(text)
+  const year = mentionedYears.length === 1 && !releaseYear ? Number(mentionedYears[0]) : undefined
+  const compact = text.replace(/\s/g, '')
+  const categories = new Map(Object.entries(academyCategories.ko)
+    .filter(([, label]) => compact.includes(label.replace(/\s/g, '')))
+    .map(([category]) => [categoryKey(category), category]))
+  return { text, year, categories }
+}
+
+const frenchCategoryNames = [...Object.entries(academyCategories.fr),
+  ['Directing', 'Meilleur réalisateur'], ['Directing', 'Meilleure réalisatrice']]
+  .map(([category, label]) => [category, normalize(label)])
+  .sort((a, b) => b[1].length - a[1].length)
+
+function frenchOscarRequest(prompt) {
+  const text = normalize(prompt)
+  if (!/\b(?:oscars?|oscarise[es]{0,2})\b/.test(text) || /\b(?:nomme[es]{0,2}|nominations?|exclu[st]|sans|pas|jamais)\b/.test(text)) return null
+  const winner = /\b(?:remporte[es]{0,2}|gagne[es]{0,2}|recu[es]{0,2}|obtenu[es]{0,2}|laureat[es]{0,2}|gagnant[es]{0,2}|recompense[es]{0,2}|oscarise[es]{0,2}|decerne[es]{0,2})\b/.test(text) ||
+    /\bprime[es]{0,2} (?:a l|aux) oscars?\b/.test(text)
+  const years = [...new Set(text.match(/\b\d{4}\b/g))]
+  const releaseYear = /\b(?:sorti[es]{0,2}|paru[es]{0,2}|produit[es]{0,2}|realise[es]{0,2}) (?:au cinema )?(?:en )?\d{4}\b/.test(text)
+  const year = years.length === 1 && !releaseYear ? Number(years[0]) : undefined
+  const categories = new Map()
+  let remaining = text
+  for (const [category, label] of frenchCategoryNames) {
+    const match = new RegExp(`\\b${label}\\b`)
+    if (!match.test(remaining)) continue
+    const key = categoryKey(category)
+    if (knownCategories.has(key)) categories.set(key, category)
+    remaining = remaining.replace(match, ' ')
+  }
+  return { text, winner, year, categories }
+}
+
 export function directOscarQuestion(prompt) {
+  const korean = koreanOscarRequest(prompt)
+  if (korean?.year && korean.categories.size === 1 && !/추천|목록|여러|몇\s*편/.test(korean.text) &&
+    /수상|누가|뭐|무엇|받[은았]|인가|상은\s*\??\s*$/.test(korean.text)) {
+    const [[key, category]] = korean.categories
+    return { year: korean.year, category, key }
+  }
+  const french = frenchOscarRequest(prompt)
+  if (french?.year && french.categories.size === 1 &&
+    (french.winner || /^oscars? (?:du |de la |des )?meilleur/.test(french.text)) &&
+    !/\b(?:recommande\w*|sugger\w*|propose\w*|liste|quelques|plusieurs|selection)\b/.test(french.text)) {
+    const [[key, category]] = french.categories
+    return { year: french.year, category, key }
+  }
   const text = normalize(prompt)
   const question = /^(?:who|what|which (?:films?|movies?|titles?)) won (.+)$/.exec(text)
   const body = question?.[1] || (/\bwinners?\b/.test(text)
@@ -95,6 +147,20 @@ export function academyWinners(year, key) {
 
 // A clearly named ceremony or common category is authoritative even when the model omits it.
 export function explicitOscarFilters(filters, prompt) {
+  const korean = koreanOscarRequest(prompt)
+  if (korean && /수상|받[은았]/.test(korean.text)) return {
+    ...filters,
+    oscarWinner: true,
+    ...(korean.year ? { oscarCeremonyYear: korean.year } : {}),
+    ...(korean.categories.size ? { oscarCategories: [...korean.categories.values()] } : {})
+  }
+  const french = frenchOscarRequest(prompt)
+  if (french?.winner) return {
+    ...filters,
+    oscarWinner: true,
+    ...(french.year ? { oscarCeremonyYear: french.year } : {}),
+    ...(french.categories.size ? { oscarCategories: [...french.categories.values()] } : {})
+  }
   const text = normalize(prompt)
   if (!/\b(?:oscars?|academy awards?)\b/.test(text) || !/\b(?:won|wins?|winners?|winning)\b/.test(text)) return filters
   const years = new Set([...text.matchAll(/\b(\d{4}) (?:oscars?|academy awards?|ceremony)\b|\b(?:oscars?|academy awards?|ceremony) (?:(?:in|of) )?(\d{4})\b/g)]

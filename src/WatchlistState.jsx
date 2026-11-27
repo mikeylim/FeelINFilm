@@ -14,6 +14,8 @@ function filmCard(movie, existing = {}) {
   return {
     id: movie.id,
     title: movie.title || existing.title,
+    titles: { ...(existing.titles || (existing.title ? { en: existing.title } : {})),
+      ...(movie.titles || (movie.title ? { en: movie.title } : {})) },
     date: movie.date || existing.date,
     poster: movie.poster || existing.poster,
     language: movie.language || existing.language,

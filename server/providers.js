@@ -1,5 +1,8 @@
 import { ratingProviders, withRatings, withRatingsFor } from './ratings.js'
 import { cacheFor, logMetric, providerJson, RequestError } from './upstream.js'
+import { locales } from '../shared/locale.js'
+
+const tmdbLanguage = locale => locales[locale]?.tmdb || locales.en.tmdb
 
 const token = (process.env.TMDB_READ_ACCESS_TOKEN || process.env.TMDB_ACCESS_TOKEN)?.trim()
 const tmdbKey = process.env.TMDB_API_KEY?.trim()
@@ -16,7 +19,11 @@ export const normalize = (value = '') => value.normalize('NFKD').replace(/\p{M}/
 export const yearOf = date => Number(date?.slice(0, 4)) || 0
 
 export function requireTmdb() {
-  if (!providers.tmdb) throw new RequestError('Movie lookup needs a TMDB credential. Set TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY in .env and restart the server.', 503)
+  if (!providers.tmdb) throw new RequestError({
+    en: 'Movie lookup needs a TMDB credential. Set TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY in .env and restart the server.',
+    ko: '영화 검색에 TMDB API 키가 필요합니다. .env에 TMDB_READ_ACCESS_TOKEN 또는 TMDB_API_KEY를 설정하고 서버를 재시작해 주세요.',
+    fr: 'La recherche de films nécessite une clé TMDB. Définissez TMDB_READ_ACCESS_TOKEN ou TMDB_API_KEY dans .env, puis redémarrez le serveur.'
+  }, 503)
 }
 
 const tmdb = (path, params = {}, ttl = 30 * 60_000) => {
@@ -32,16 +39,20 @@ const tmdb = (path, params = {}, ttl = 30 * 60_000) => {
 }
 
 const image = (path, size) => path && /^\/[a-zA-Z0-9_.-]+$/.test(path) ? `https://image.tmdb.org/t/p/${size}${path}` : ''
-const people = (crew, jobs) => [...new Set(crew.filter(person => jobs.includes(person.job)).map(person => person.name))]
+const displayName = (person, locale) => locale === 'ko' && /\p{Script=Hangul}/u.test(person.original_name || '') ? person.original_name : person.name
+const people = (crew, jobs, locale) => [...new Set(crew.filter(person => jobs.includes(person.job)).map(person => displayName(person, locale)))]
+const creditedNames = people => [...new Set(people.flatMap(person => [person.name, person.original_name]).filter(Boolean))]
 const genreNames = new Map([[28, 'Action'], [12, 'Adventure'], [16, 'Animation'], [35, 'Comedy'], [80, 'Crime'],
   [99, 'Documentary'], [18, 'Drama'], [10751, 'Family'], [14, 'Fantasy'], [36, 'History'], [27, 'Horror'],
   [10402, 'Music'], [9648, 'Mystery'], [10749, 'Romance'], [878, 'Science Fiction'], [10770, 'TV Movie'],
   [53, 'Thriller'], [10752, 'War'], [37, 'Western']])
 
-function summary(raw) {
-  const genres = raw.genres?.map(genre => genre.name) || (raw.genre_ids || []).map(id => genreNames.get(id)).filter(Boolean)
+function summary(raw, locale = 'en') {
+  const genres = raw.genres?.map(genre => genreNames.get(genre.id) || genre.name) || (raw.genre_ids || []).map(id => genreNames.get(id)).filter(Boolean)
+  const original = Object.hasOwn(locales, raw.original_language) ? raw.original_language : undefined
+  const titles = { ...(original && raw.original_title ? { [original]: raw.original_title } : {}), [locale]: raw.title }
   return {
-    id: raw.id, title: raw.title, date: raw.release_date,
+    id: raw.id, title: raw.title, titles, date: raw.release_date,
     poster: image(raw.poster_path, 'w500'),
     backdrop: image(raw.backdrop_path, 'w1280'),
     overview: raw.overview,
@@ -62,13 +73,13 @@ function certification(releases) {
   return ''
 }
 
-function formatMovie(raw, detailed = false) {
+function formatMovie(raw, detailed = false, locale = 'en') {
   const crew = raw.credits?.crew || []
   const cast = (raw.credits?.cast || []).slice(0, detailed ? 12 : 8).map(person => ({
-    name: person.name, character: person.character, image: image(person.profile_path, 'w185')
+    name: displayName(person, locale), character: person.character, image: image(person.profile_path, 'w185')
   }))
   const base = {
-    ...summary(raw), runtime: raw.runtime, directors: people(crew, ['Director']), cast
+    ...summary(raw, locale), runtime: raw.runtime, directors: people(crew, ['Director'], locale), cast
   }
   if (!detailed) return base
 
@@ -78,11 +89,13 @@ function formatMovie(raw, detailed = false) {
     ...base,
     titleOriginal: raw.original_title === raw.title ? '' : raw.original_title,
     tagline: raw.tagline,
-    writers: people(crew, ['Writer', 'Screenplay', 'Story']),
+    writers: people(crew, ['Writer', 'Screenplay', 'Story'], locale),
     certification: certification(raw.release_dates?.results || []),
     trailer: trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : '',
     languages: (raw.spoken_languages || []).map(language => language.english_name),
+    languageCodes: (raw.spoken_languages || []).map(language => language.iso_639_1).filter(Boolean),
     countries: (raw.production_countries || []).map(country => country.name),
+    countryCodes: (raw.production_countries || []).map(country => country.iso_3166_1).filter(Boolean),
     companies: (raw.production_companies || []).map(company => company.name),
     budget: raw.budget,
     revenue: raw.revenue
@@ -90,16 +103,18 @@ function formatMovie(raw, detailed = false) {
 }
 
 const detailParams = 'credits,videos,release_dates,recommendations,similar'
-const rawMovie = (id, full = false) => tmdb(`/movie/${id}`, { append_to_response: full ? detailParams : 'credits' })
+const rawMovie = (id, full, locale) => tmdb(`/movie/${id}`, {
+  language: tmdbLanguage(locale), append_to_response: full ? detailParams : 'credits'
+})
 
-async function enrichResults(results) {
+async function enrichResults(results, locale) {
   const movies = []
   for (let i = 0; i < results.length; i += 10) {
     const batch = await Promise.all(results.slice(i, i + 10).map(async raw => {
       try {
-        return formatMovie(await rawMovie(raw.id))
+        return formatMovie(await rawMovie(raw.id, false, locale), false, locale)
       } catch {
-        return summary(raw)
+        return summary(raw, locale)
       }
     }))
     movies.push(...batch)
@@ -107,60 +122,60 @@ async function enrichResults(results) {
   return withRatingsFor(movies, { awards: true })
 }
 
-async function completeCard(movie) {
+async function completeCard(movie, locale) {
   try {
-    const raw = await tmdb(`/movie/${movie.id}`)
+    const raw = await tmdb(`/movie/${movie.id}`, { language: tmdbLanguage(locale) })
     return { ...movie, imdbId: movie.imdbId || raw.imdb_id, runtime: movie.runtime || raw.runtime }
   } catch {
     return movie
   }
 }
 
-async function movieList(results, more, { emit, signal, started, source }) {
+async function movieList(results, more, { emit, signal, started, source, locale }) {
   logMetric('movie_results', { source, count: results.length, firstCardsMs: Math.round(performance.now() - started) })
-  if (!emit) return { movies: await enrichResults(results), more }
+  if (!emit) return { movies: await enrichResults(results, locale), more }
 
   signal?.throwIfAborted()
-  const movies = results.map(summary)
+  const movies = results.map(raw => summary(raw, locale))
   emit({ type: 'cards', result: { movies, more } })
-  return { movies: await withRatingsFor(movies, { completeMovie: completeCard }), more }
+  return { movies: await withRatingsFor(movies, { completeMovie: movie => completeCard(movie, locale) }), more }
 }
 
-export async function liveSearch(query, page, emit, signal) {
+export async function liveSearch(query, page, emit, signal, locale = 'en') {
   const started = performance.now()
   const cleaned = query.trim()
   const explicitYear = cleaned.match(/^(.+?)\s*\((\d{4})\)$/)
-  const parameters = { page, include_adult: false }
+  const parameters = { page, include_adult: false, language: tmdbLanguage(locale) }
   let result = await tmdb('/search/movie', { ...parameters, query: explicitYear?.[1].trim() || cleaned, year: explicitYear?.[2] }, 10 * 60_000)
   const trailingYear = !explicitYear && cleaned.match(/^(.+?)\s+(\d{4})$/)
   if (trailingYear && !result.total_results) {
     result = await tmdb('/search/movie', { ...parameters, query: trailingYear[1], year: trailingYear[2] }, 10 * 60_000)
   }
   const more = page < Math.min(result.total_pages, 500)
-  return movieList(result.results, more, { emit, signal, started, source: 'search' })
+  return movieList(result.results, more, { emit, signal, started, source: 'search', locale })
 }
 
-export async function liveTrending(emit, signal) {
+export async function liveTrending(emit, signal, locale = 'en') {
   const started = performance.now()
-  const result = await tmdb('/trending/movie/week')
-  return movieList(result.results.filter(movie => !movie.adult).slice(0, 10), false, { emit, signal, started, source: 'trending' })
+  const result = await tmdb('/trending/movie/week', { language: tmdbLanguage(locale) })
+  return movieList(result.results.filter(movie => !movie.adult).slice(0, 10), false, { emit, signal, started, source: 'trending', locale })
 }
 
-export async function liveDetails(id) {
-  const raw = await rawMovie(id, true)
+export async function liveDetails(id, locale = 'en') {
+  const raw = await rawMovie(id, true, locale)
   const related = [...(raw.recommendations?.results || []), ...(raw.similar?.results || [])]
   const distinct = [...new Map(related.filter(movie => !movie.adult && movie.id !== id).map(movie => [movie.id, movie])).values()]
-  const [movie, similar] = await Promise.all([withRatings(formatMovie(raw, true)), enrichResults(distinct.slice(0, 7))])
+  const [movie, similar] = await Promise.all([withRatings(formatMovie(raw, true, locale)), enrichResults(distinct.slice(0, 7), locale)])
   return { ...movie, similar }
 }
 
-export async function movieByImdb(imdbId) {
-  const result = await tmdb(`/find/${imdbId}`, { external_source: 'imdb_id' })
+export async function movieByImdb(imdbId, locale = 'en') {
+  const result = await tmdb(`/find/${imdbId}`, { external_source: 'imdb_id', language: tmdbLanguage(locale) })
   const movie = result.movie_results?.find(item => !item.adult)
-  return movie ? { ...summary(movie), imdbId } : null
+  return movie ? { ...summary(movie, locale), imdbId } : null
 }
 
-export async function resolveFilm(candidate, signal) {
+export async function resolveFilm(candidate, signal, locale = 'en') {
   const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
   const original = typeof candidate.originalTitle === 'string' ? candidate.originalTitle.trim() : ''
   const year = candidate.year
@@ -183,10 +198,12 @@ export async function resolveFilm(candidate, signal) {
       movie = broad.results.find(raw => exactTitle(raw) && yearOf(raw.release_date) === year)
     }
     if (movie) {
-      const raw = await rawMovie(movie.id)
+      const raw = await rawMovie(movie.id, false, locale)
+      const formatted = formatMovie(raw, false, locale)
       return {
-        ...formatMovie(raw),
-        creditedCast: (raw.credits?.cast || []).map(person => person.name),
+        ...formatted, titles: { en: movie.title, ...formatted.titles },
+        creditedDirectors: creditedNames((raw.credits?.crew || []).filter(person => person.job === 'Director')),
+        creditedCast: creditedNames(raw.credits?.cast || []),
         reason: typeof candidate.reason === 'string' ? candidate.reason.trim().slice(0, 420) : ''
       }
     }

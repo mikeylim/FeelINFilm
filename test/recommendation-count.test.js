@@ -15,10 +15,12 @@ function mockRecommendations(t, fields, runtime = () => 100, beforeDetails = () 
     return { id, title: `Test film ${id}`, release_date: '1994-01-01', runtime: runtime(index), genres: [] }
   })
   const searches = []
+  const systemInstructions = []
   t.mock.method(globalThis, 'fetch', async (input, options) => {
     const url = new URL(input)
     if (url.hostname === 'generativelanguage.googleapis.com') {
-      const { generationConfig } = JSON.parse(options.body)
+      const { generationConfig, systemInstruction } = JSON.parse(options.body)
+      systemInstructions.push(systemInstruction.parts[0].text)
       assert.equal(generationConfig.responseJsonSchema.properties.movies.maxItems, 12)
       return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
         text: 'These films fit your request.',
@@ -36,9 +38,15 @@ function mockRecommendations(t, fields, runtime = () => 100, beforeDetails = () 
     }
     const movie = movies.find(movie => url.pathname === '/3/movie/' + movie.id)
     await beforeDetails(movies.indexOf(movie))
+    if (movie && url.searchParams.get('language') === 'ko-KR') {
+      return Response.json({ ...movie, title: `테스트 영화 ${movie.id}`, genres: [{ id: 18, name: '드라마' }] })
+    }
+    if (movie && url.searchParams.get('language') === 'fr-FR') {
+      return Response.json({ ...movie, title: `Film d’essai ${movie.id}`, genres: [{ id: 18, name: 'Drame' }] })
+    }
     return Response.json(movie)
   })
-  return { movies, searches }
+  return { movies, searches, systemInstructions }
 }
 
 const ask = text => [{ role: 'user', text }]
@@ -88,6 +96,33 @@ test('a rating minimum prevents unverified cards from streaming', async t => {
   assert.ok(events.some(event => event.stage === 'ratings'))
   assert.equal(events.some(event => event.type === 'cards'), false)
   assert.deepEqual(reply.movies, [])
+})
+
+test('site locale controls Gemini’s language and Korean metadata keeps canonical filters working', async t => {
+  const { movies, systemInstructions } = mockRecommendations(t, {
+    count: 6, requestedCount: 90, filters: { requiredGenres: ['Drama'] }
+  }, index => [89, 90, 84, 105][index] || 110)
+  const frenchHistory = [{ role: 'assistant', text: 'Voici quelques films.' }]
+  await liveRecommendations([...ask('Recommend Dune-like films.'), ...frenchHistory, ...ask('Give me more films.')], [])
+  assert.match(systemInstructions[0], /site language is English/)
+  const reply = await liveRecommendations(ask('90분 미만 드라마 영화 2편만 추천해 줘.'), [], undefined, undefined, { locale: 'ko' })
+  assert.match(systemInstructions[1], /site language is Korean/)
+  assert.equal(reply.locale, 'ko')
+  assert.equal(reply.criteria.maxRuntime, 89)
+  assert.deepEqual(reply.movies.map(movie => movie.id), [movies[0].id, movies[2].id])
+  assert.deepEqual(reply.movies[0].titles, { en: movies[0].title, ko: `테스트 영화 ${movies[0].id}` })
+})
+
+test('French requests use French output and metadata while verifying count and runtime', async t => {
+  const { movies, systemInstructions } = mockRecommendations(t, {
+    count: 6, requestedCount: 90, filters: { requiredGenres: ['Drama'] }
+  }, index => [89, 90, 84, 105][index] || 110)
+  const reply = await liveRecommendations(ask('Propose-moi deux films de moins de 90 minutes.'), [], undefined, undefined, { locale: 'fr-CA' })
+  assert.match(systemInstructions[0], /site language is French/)
+  assert.equal(reply.locale, 'fr')
+  assert.equal(reply.criteria.maxRuntime, 89)
+  assert.deepEqual(reply.movies.map(movie => movie.id), [movies[0].id, movies[2].id])
+  assert.deepEqual(reply.movies[0].titles, { en: movies[0].title, fr: `Film d’essai ${movies[0].id}` })
 })
 
 test('a shortlist keeps a stated runtime even when Gemini confuses the number with a count', async t => {

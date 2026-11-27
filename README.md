@@ -14,6 +14,7 @@ FeelINFilm (FIF) helps you decide what to watch. Describe your mood, a film you 
 - **Search and sort your lists.** Filter Watchlist and Watched by title as you type. Both lists support the same rating, release, runtime, and title sorts as recommendations. **Date watched (newest)** uses the viewing date and puts undated films last.
 - **List dates.** Watchlist and Watched record their own action timestamps. Each list displays the dates in your timezone and sorts by its action date. Older entries keep their original order after dated entries. Select **Already watched** on a card or detail page to log a film and pick the day you saw it, or choose **Skip date**. You can also edit the date from the Watched list.
 - **Browser-local preferences.** Switch between light and dark themes, reopen recent conversations, or dictate a prompt in a browser that supports speech recognition.
+- **English, Korean, and French.** Use the language selector in the top bar to switch the interface, sample prompts, voice input, and new replies. FeelINFilm requests film metadata from TMDB in the selected language. Saved chats keep their original text.
 
 ## Quick start
 

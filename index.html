@@ -9,6 +9,10 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script>
       try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('feelinfilm.theme')) === 'light' ? 'light' : 'dark' } catch {}
+      try {
+        const locale = JSON.parse(localStorage.getItem('feelinfilm.locale'))
+        if (locale === 'ko' || locale === 'fr') document.documentElement.lang = locale
+      } catch {}
     </script>
     <title>FeelINFilm · Find your next film</title>
   </head>

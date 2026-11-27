@@ -1,16 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star, Trophy } from 'lucide-react'
-import { filmPath, languageName, linkOut, movieYear, parseCalendarDate, runtimeText } from './utils'
+import { awardLabel, genreLabel, locales } from '../shared/locale.js'
+import { useLanguage } from './Language'
+import { filmPath, languageName, linkOut, movieTitle, movieYear, parseCalendarDate, runtimeText } from './utils'
 import { WatchDateDialog } from './WatchDateDialog'
 import { useWatchlist } from './WatchlistState'
 
 export function Poster({ movie, className = '', eager = false }) {
+  const { locale } = useLanguage()
   const [failed, setFailed] = useState('')
   const show = movie.poster && failed !== movie.poster
   return <div className={`poster ${className}`}>
     {show ? <img src={movie.poster} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async"
       onError={() => setFailed(movie.poster)} /> :
-      <div className="poster-fallback"><Film size={30} /><span>{movie.title}</span></div>}
+      <div className="poster-fallback"><Film size={30} /><span>{movieTitle(movie, locale)}</span></div>}
   </div>
 }
 
@@ -19,67 +22,77 @@ function LetterboxdMark() {
 }
 
 export function Ratings({ movie, detailed = false }) {
-  const title = encodeURIComponent(movie.title)
-  const imdb = movie.imdbId ? `https://www.imdb.com/title/${movie.imdbId}/` : `https://www.imdb.com/find/?q=${title}&s=tt`
-  const rt = movie.rtUrl || `https://www.rottentomatoes.com/search?search=${title}`
+  const { locale, t } = useLanguage()
+  const title = movieTitle(movie, locale)
+  const query = encodeURIComponent(movieTitle(movie, 'en'))
+  const imdb = movie.imdbId ? `https://www.imdb.com/title/${movie.imdbId}/` : `https://www.imdb.com/find/?q=${query}&s=tt`
+  const rt = movie.rtUrl || `https://www.rottentomatoes.com/search?search=${query}`
   const letterboxdLink = movie.letterboxdUrl || `https://letterboxd.com/tmdb/${movie.id}/`
-  const { imdb: imdbRating, rt: rtRating, letterboxd } = movie.ratings || {}
-  const scoreHint = (name, score, snapshot) => score ? `${name} ${score}${snapshot ? ' · Saved score' : ''}` : `Open ${name} to check its rating`
+  const formatScore = value => locale === 'fr' && value ? String(value).replace('.', ',').replace('%', '\u00a0%') : value
+  const imdbRating = formatScore(movie.ratings?.imdb)
+  const rtRating = formatScore(movie.ratings?.rt)
+  const letterboxd = formatScore(movie.ratings?.letterboxd)
+  const scoreHint = (name, score, snapshot) => score ? `${name} ${score}${snapshot ? ` · ${t('Saved score')}` : ''}`
+    : t('Open {name} to check its rating', { name })
+  const scoreLabel = (name, score) => t(score ? '{name} for {title}, {score}' : '{name} for {title}', { name, title, score })
   return <div className={detailed ? 'film-ratings film-ratings-large' : 'film-ratings'}>
-    <div className="ratings" aria-label="Film ratings">
+    <div className="ratings" aria-label={t('Film ratings')}>
       <a href={imdb} {...linkOut} title={scoreHint('IMDb', imdbRating, movie.ratingsSnapshot?.imdb)}
-        aria-label={`IMDb for ${movie.title}${imdbRating ? `, ${imdbRating} out of 10` : ''}`}>
+        aria-label={scoreLabel('IMDb', imdbRating && t('{score} out of {max}', { score: imdbRating, max: 10 }))}>
         <span className="imdb-mark">IMDb</span><span>{imdbRating ? `${imdbRating}${detailed ? '/10' : ''}` : '—'}</span>
         {detailed && <ArrowUpRight size={14} />}
       </a>
       <a href={rt} {...linkOut} title={scoreHint('Rotten Tomatoes', rtRating, movie.ratingsSnapshot?.rt)}
-        aria-label={`Rotten Tomatoes for ${movie.title}${rtRating ? `, ${rtRating}` : ''}`}>
+        aria-label={scoreLabel('Rotten Tomatoes', rtRating)}>
         <span className="rt-mark" aria-hidden="true" /><span>{rtRating || '—'}</span>
-        {detailed && <><span className="rating-label tomatometer-label">Tomatometer</span><ArrowUpRight size={14} /></>}
+        {detailed && <><span className="rating-label tomatometer-label">{t('Tomatometer')}</span><ArrowUpRight size={14} /></>}
       </a>
       <a href={letterboxdLink} {...linkOut} title={scoreHint('Letterboxd', letterboxd && `${letterboxd}/5`, movie.ratingsSnapshot?.letterboxd)}
-        aria-label={`Letterboxd for ${movie.title}${letterboxd ? `, ${letterboxd} out of 5` : ''}`}>
+        aria-label={scoreLabel('Letterboxd', letterboxd && t('{score} out of {max}', { score: letterboxd, max: 5 }))}>
         <LetterboxdMark /><span>{letterboxd ? `${letterboxd}${detailed ? '/5' : ''}` : '—'}</span>
         {detailed && <ArrowUpRight size={14} />}
       </a>
-      {detailed && Boolean(movie.vote) && <a href={`https://www.themoviedb.org/movie/${movie.id}`} {...linkOut} title="TMDB community rating">
-        <Star size={15} /><span>{movie.vote.toFixed(1)}/10</span><span className="rating-label">TMDB</span><ArrowUpRight size={14} />
+      {detailed && Boolean(movie.vote) && <a href={`https://www.themoviedb.org/movie/${movie.id}`} {...linkOut} title={t('TMDB community rating')}>
+        <Star size={15} /><span>{formatScore(movie.vote.toFixed(1))}/10</span><span className="rating-label">TMDB</span><ArrowUpRight size={14} />
       </a>}
     </div>
   </div>
 }
 
 export function WatchlistButton({ movie, overlay = false }) {
+  const { locale, t } = useLanguage()
   const { savedIds, toggle } = useWatchlist()
   const saved = savedIds.has(movie.id)
-  const action = saved ? `Remove ${movie.title} from watchlist` : `Save ${movie.title} to watchlist`
+  const action = t(saved ? 'Remove {title} from watchlist' : 'Save {title} to watchlist', { title: movieTitle(movie, locale) })
   const style = overlay ? 'movie-save' : 'button detail-secondary watchlist-action'
   return <button type="button" className={`${style}${saved ? ' is-saved' : ''}`} aria-label={action} title={action}
     onClick={() => toggle(movie)}>
     <Bookmark size={16} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
-    {!overlay && (saved ? 'In watchlist' : 'Save to watchlist')}
+    {!overlay && t(saved ? 'In watchlist' : 'Save to watchlist')}
   </button>
 }
 
 export function WatchedButton({ movie, overlay = false, removeDirectly = false }) {
+  const { locale, t } = useLanguage()
   const { watchedIds, watchedMovies, toggleWatched } = useWatchlist()
   const [editor, setEditor] = useState(null)
   const watched = watchedIds.has(movie.id)
   const entry = editor && watchedMovies.find(item => item.id === movie.id)
   const Icon = watched ? Check : Eye
   const style = overlay ? 'movie-save' : 'button detail-secondary watchlist-action'
-  const action = watched ? (removeDirectly ? `Remove ${movie.title} from watched films` : `Edit watched date for ${movie.title}`)
-    : `Mark ${movie.title} as watched`
+  const title = movieTitle(movie, locale)
+  const action = t(watched ? (removeDirectly ? 'Remove {title} from watched films' : 'Edit watched date for {title}')
+    : 'Mark {title} as watched', { title })
   function handleClick() {
     if (!watched || removeDirectly) toggleWatched(movie)
     if (!removeDirectly) setEditor(watched ? 'edit' : 'new')
   }
   return <>
     <button type="button" className={`${style}${watched ? ' is-saved' : ''}`}
-      aria-label={`Already watched ${movie.title}`} aria-pressed={watched}
+      aria-label={t('Already watched {title}', { title })} aria-pressed={watched}
       aria-haspopup={removeDirectly ? undefined : 'dialog'} title={action} onClick={handleClick}>
       <Icon size={16} aria-hidden="true" />
-      {!overlay && 'Already watched'}
+      {!overlay && t('Already watched')}
     </button>
     {entry && <WatchDateDialog movie={entry} onClose={() => setEditor(null)}
       newlyMarked={editor === 'new'} allowRemove={editor === 'edit'} />}
@@ -87,40 +100,45 @@ export function WatchedButton({ movie, overlay = false, removeDirectly = false }
 }
 
 function OscarWins({ wins }) {
+  const { locale, t } = useLanguage()
   const ceremonies = new Map()
   for (const win of wins) {
     if (!ceremonies.has(win.ceremony)) ceremonies.set(win.ceremony, { ...win, categories: [] })
     ceremonies.get(win.ceremony).categories.push(win.category)
   }
-  return <div className="movie-awards" aria-label="Verified Academy Award wins">
+  return <div className="movie-awards" aria-label={t('Verified Academy Award wins')}>
     {[...ceremonies.values()].map(({ ceremony, year, source, categories }) => <a key={ceremony} href={source} {...linkOut}>
       <Trophy size={14} aria-hidden="true" />
-      <span><strong>{year} Oscars</strong><span>{categories.join(' · ')}</span></span>
+      <span><strong>{t('{year} Oscars', { year })}</strong><span>{categories.map(category => awardLabel(category, locale)).join(' · ')}</span></span>
     </a>)}
   </div>
 }
 
-const shortListDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
-const fullListDate = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-const watchDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' })
+const listDates = Object.fromEntries(Object.keys(locales).map(locale => [locale, {
+  short: new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }),
+  full: new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }),
+  viewing: new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' })
+}]))
 
-function formatListDate(timestamp, includeYear) {
+function formatListDate(timestamp, includeYear, locale) {
   if (typeof timestamp !== 'string') return ''
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return ''
-  const formatter = includeYear || date.getFullYear() !== new Date().getFullYear() ? fullListDate : shortListDate
+  const formatter = includeYear || date.getFullYear() !== new Date().getFullYear() ? listDates[locale].full : listDates[locale].short
   return formatter.format(date)
 }
 
-export function MovieCard({ movie, open, withReason, eager, entryDate, onEditWatchDate }) {
-  const facts = [movieYear(movie), runtimeText(movie.runtime), movie.genres?.[0] || languageName(movie.language)].filter(Boolean)
+export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryDate, onEditWatchDate }) {
+  const { locale, t } = useLanguage()
+  const title = movieTitle(movie, locale)
+  const facts = [movieYear(movie), runtimeText(movie.runtime, locale), genreLabel(movie.genres?.[0], locale) || languageName(movie.language, locale)].filter(Boolean)
   const timestamp = entryDate && movie[entryDate.field]
-  const actionDate = formatListDate(timestamp, entryDate?.includeYear)
+  const actionDate = formatListDate(timestamp, entryDate?.includeYear, locale)
   const watchedOn = onEditWatchDate && parseCalendarDate(movie.watchedOn)
-  const viewingDate = watchedOn && watchDateFormat.format(watchedOn)
+  const viewingDate = watchedOn && listDates[locale].viewing.format(watchedOn)
   return <article className="movie-card">
     <div className="poster-frame">
-      <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={`Open ${movie.title}`}>
+      <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={t('Open {title}', { title })}>
         <Poster movie={movie} eager={eager} />
       </a>
       <div className="movie-actions">
@@ -128,18 +146,18 @@ export function MovieCard({ movie, open, withReason, eager, entryDate, onEditWat
         <WatchlistButton movie={movie} overlay />
       </div>
     </div>
-    <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{movie.title}</a>
+    <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{title}</a>
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
-    {actionDate && <p className="movie-list-date">{entryDate.label} <time dateTime={timestamp}>{actionDate}</time></p>}
+    {actionDate && <p className="movie-list-date">{t(entryDate.label)} <time dateTime={timestamp}>{actionDate}</time></p>}
     {onEditWatchDate && <button type="button" className="watch-date-button"
-      aria-label={viewingDate ? `Watched on ${viewingDate}. Edit date for ${movie.title}` : `Set date watched for ${movie.title}`}
-      title={viewingDate ? 'Edit date watched' : undefined} onClick={() => onEditWatchDate(movie.id)}>
+      aria-label={t(viewingDate ? 'Watched on {date}. Edit date for {title}' : 'Set date watched for {title}', { date: viewingDate, title })}
+      title={viewingDate ? t('Edit date watched') : undefined} onClick={() => onEditWatchDate(movie.id)}>
       <CalendarDays size={14} aria-hidden="true" />
-      <span>{viewingDate ? <>Watched on <time dateTime={movie.watchedOn}>{viewingDate}</time></> : 'Set date watched'}</span>
+      <span>{viewingDate ? <>{t('Watched on')} <time dateTime={movie.watchedOn}>{viewingDate}</time></> : t('Set date watched')}</span>
     </button>}
     <Ratings movie={movie} />
     {movie.oscarWins?.length > 0 && <OscarWins wins={movie.oscarWins} />}
-    {withReason && movie.reason && <p className="movie-reason">{movie.reason}</p>}
+    {withReason && movie.reason && <p className="movie-reason" lang={reasonLocale}>{movie.reason}</p>}
   </article>
 }
 
@@ -149,7 +167,7 @@ const sortChoices = [
 ]
 const positive = value => Number.parseFloat(value) || 0
 const dateWatched = movie => parseCalendarDate(movie.watchedOn) ? movie.watchedOn : ''
-function sortMovies(movies, sort) {
+function sortMovies(movies, sort, locale) {
   const compare = {
     imdb: (a, b) => positive(b.ratings?.imdb) - positive(a.ratings?.imdb),
     rt: (a, b) => positive(b.ratings?.rt) - positive(a.ratings?.rt),
@@ -158,16 +176,17 @@ function sortMovies(movies, sort) {
     oldest: (a, b) => (a.date || '9999').localeCompare(b.date || '9999'),
     watchedOn: (a, b) => dateWatched(b).localeCompare(dateWatched(a)),
     short: (a, b) => (a.runtime || Infinity) - (b.runtime || Infinity),
-    title: (a, b) => a.title.localeCompare(b.title)
+    title: (a, b) => movieTitle(a, locale).localeCompare(movieTitle(b, locale), locale)
   }[sort]
   return compare ? [...movies].sort(compare) : movies
 }
 
-export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, eager, entryDate, onEditWatchDate, defaultOrder = 'Best match' }) {
+export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, reasonLocale, eager, entryDate, onEditWatchDate, defaultOrder = 'Best match' }) {
+  const { locale, t } = useLanguage()
   const list = useRef(null)
   const [sort, setSort] = useState('match')
   const [bounds, setBounds] = useState({ previous: false, next: false })
-  const ordered = sortMovies(movies, sort)
+  const ordered = sortMovies(movies, sort, locale)
   const choices = onEditWatchDate ? [sortChoices[0], ['watchedOn', 'Date watched (newest)'], ...sortChoices.slice(1)] : sortChoices
 
   useEffect(() => {
@@ -195,7 +214,7 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
   }
 
   if (!movies.length) return null
-  return <section className="movie-shelf" aria-label={heading || 'Recommended movies'}>
+  return <section className="movie-shelf" aria-label={heading || t('Recommended movies')}>
     <div className="shelf-heading">
       <div>
         {heading && <h2>{heading}</h2>}
@@ -203,22 +222,22 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
       </div>
       <div className="shelf-actions">
         {sortEnabled && (movies.length > 1 || entryDate) && <label className="sort-control">
-          <span className="sr-only">Sort movies</span>
+          <span className="sr-only">{t('Sort movies')}</span>
           <select value={sort} onChange={event => {
             setSort(event.target.value)
             list.current?.scrollTo(0, 0)
-          }}>{choices.map(([value, label]) => <option key={value} value={value}>{value === 'match' ? defaultOrder : label}</option>)}</select>
+          }}>{choices.map(([value, label]) => <option key={value} value={value}>{t(value === 'match' ? defaultOrder : label)}</option>)}</select>
           <ChevronDown size={14} />
         </label>}
         {!grid && (bounds.previous || bounds.next) && <div className="carousel-controls">
-          <button className="icon-button" type="button" onClick={() => scroll(-1)} disabled={!bounds.previous} aria-label="Previous films"><ChevronLeft size={18} /></button>
-          <button className="icon-button" type="button" onClick={() => scroll(1)} disabled={!bounds.next} aria-label="More films"><ChevronRight size={18} /></button>
+          <button className="icon-button" type="button" onClick={() => scroll(-1)} disabled={!bounds.previous} aria-label={t('Previous films')}><ChevronLeft size={18} /></button>
+          <button className="icon-button" type="button" onClick={() => scroll(1)} disabled={!bounds.next} aria-label={t('More films')}><ChevronRight size={18} /></button>
         </div>}
       </div>
     </div>
     <div className={grid ? 'movie-grid' : 'movie-carousel'} ref={list}>
       {ordered.map((movie, index) => <MovieCard key={movie.id} movie={movie} open={open}
-        withReason={withReason} eager={eager && index < 5} entryDate={entryDate} onEditWatchDate={onEditWatchDate} />)}
+        withReason={withReason} reasonLocale={reasonLocale} eager={eager && index < 5} entryDate={entryDate} onEditWatchDate={onEditWatchDate} />)}
     </div>
   </section>
 }

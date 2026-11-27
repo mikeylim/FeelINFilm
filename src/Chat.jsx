@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   ArrowUp, Clapperboard, Clock, Coffee, Film, Mic, MicOff, Plus, Puzzle, Square, Trophy, Video
 } from 'lucide-react'
+import { locales } from '../shared/locale.js'
+import { useLanguage } from './Language'
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { MovieShelf } from './Movies'
 import { linkOut } from './utils'
@@ -18,6 +20,7 @@ const prompts = [
 ]
 
 function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
+  const { locale, t } = useLanguage()
   const textarea = useRef(null)
   const recognizer = useRef(null)
   const [listening, setListening] = useState(false)
@@ -54,7 +57,7 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
     }
     const speech = new Speech()
     recognizer.current = speech
-    speech.lang = navigator.language || 'en-CA'
+    speech.lang = navigator.language?.toLowerCase().startsWith(`${locale}-`) ? navigator.language : locales[locale].speech
     setVoiceStatus('')
     speech.onresult = event => {
       const transcript = event.results[event.resultIndex]?.[0]?.transcript
@@ -79,14 +82,14 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
   }
 
   return <div className="composer-wrap">
-    {voiceStatus && <div className="voice-status" role="status">{voiceStatus}</div>}
+    {voiceStatus && <div className="voice-status" role="status">{t(voiceStatus)}</div>}
     <form className="composer" onSubmit={event => { event.preventDefault(); submit() }}>
-      <label htmlFor="chat-prompt" className="sr-only">Movie request</label>
+      <label htmlFor="chat-prompt" className="sr-only">{t('Movie request')}</label>
       <textarea ref={textarea} value={draft} id="chat-prompt" maxLength={1600}
-        placeholder={active ? 'Ask for more movies or narrow your picks…' : 'Describe a mood, a movie you love, or what you want to watch…'}
+        placeholder={t(active ? 'Ask for more movies or narrow your picks…' : 'Describe a mood, a movie you love, or what you want to watch…')}
         onChange={event => setDraft(event.target.value)} rows={1}
         onKeyDown={event => {
-          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
             event.preventDefault()
             submit()
           }
@@ -94,14 +97,14 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
       <div className="composer-actions">
         {watchedMovies.length > 0 && <label className="watched-filter">
           <input type="checkbox" checked={excludeWatched} onChange={event => setExcludeWatched(event.target.checked)} />
-          Exclude watched films
+          {t('Exclude watched films')}
         </label>}
         <button type="button" className={listening ? 'icon-button mic listening' : 'icon-button mic'} onClick={voice}
-          title={listening ? 'Stop listening' : 'Use voice input'} aria-label={listening ? 'Stop listening' : 'Use voice input'} aria-pressed={listening}>
+          title={t(listening ? 'Stop listening' : 'Use voice input')} aria-label={t(listening ? 'Stop listening' : 'Use voice input')} aria-pressed={listening}>
           {listening ? <MicOff size={18} /> : <Mic size={18} />}
         </button>
-        {busy ? <button type="button" className="send-button" onClick={stop} aria-label="Stop reply" title="Stop reply"><Square size={14} fill="currentColor" /></button> :
-          <button type="submit" className="send-button" disabled={!draft.trim()} aria-label="Send movie request" title="Send movie request"><ArrowUp size={20} strokeWidth={2.4} /></button>}
+        {busy ? <button type="button" className="send-button" onClick={stop} aria-label={t('Stop reply')} title={t('Stop reply')}><Square size={14} fill="currentColor" /></button> :
+          <button type="submit" className="send-button" disabled={!draft.trim()} aria-label={t('Send movie request')} title={t('Send movie request')}><ArrowUp size={20} strokeWidth={2.4} /></button>}
       </div>
     </form>
   </div>
@@ -114,6 +117,7 @@ const progress = {
 }
 
 export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, error, onFocusRef, onMore, open }) {
+  const { t } = useLanguage()
   const savedMessages = thread?.messages || []
   const messages = pending?.reply ? [...savedMessages, pending.reply] : savedMessages
   const busy = Boolean(pending)
@@ -172,41 +176,41 @@ export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, er
 
   const composer = <Composer draft={draft} setDraft={setDraft} onSend={submit} stop={stop} busy={busy} onFocusRef={onFocusRef} active={active} />
   return active ? <div className="content chat-content">
-    <h1 className="sr-only">Movie recommendation chat</h1>
-    <div className="conversation" aria-label="Movie conversation">
+    <h1 className="sr-only">{t('Movie recommendation chat')}</h1>
+    <div className="conversation" aria-label={t('Movie conversation')}>
       {messages.map((message, index) => message.role === 'user'
-        ? <div className="user-turn" key={message.id} ref={message === latestPrompt ? lastPrompt : undefined}><p>{message.display || message.text}</p></div>
-        : <section className="assistant-turn" key={message.id} ref={index === messages.length - 1 ? lastReply : undefined} aria-label="FeelINFilm response">
-          <div className="assistant-identity" title={message.model}><span><FilmGuideIcon /></span> {message.source === 'preview' ? 'Saved preview reply' : 'FeelINFilm'}</div>
-          <p className="assistant-copy">{message.text}</p>
-          {message.awardSource && <a className="text-link award-source" href={message.awardSource} {...linkOut}>Check the official Academy results</a>}
+        ? <div className="user-turn" key={message.id} ref={message === latestPrompt ? lastPrompt : undefined}><p>{message.display ? t('Show me more picks') : message.text}</p></div>
+        : <section className="assistant-turn" key={message.id} ref={index === messages.length - 1 ? lastReply : undefined} aria-label={t('FeelINFilm response')}>
+          <div className="assistant-identity" title={message.model}><span><FilmGuideIcon /></span> {t(message.source === 'preview' ? 'Saved preview reply' : 'FeelINFilm')}</div>
+          <p className="assistant-copy" lang={message.locale}>{message.text}</p>
+          {message.awardSource && <a className="text-link award-source" href={message.awardSource} {...linkOut}>{t('Check the official Academy results')}</a>}
           <MovieShelf movies={message.movies || []} heading={message.movies?.length
-            ? (message.source === 'academy' ? 'Oscar results' : 'Your recommendations') : ''}
-            sortEnabled withReason eager={index === messages.length - 1} open={open} />
+            ? (t(message.source === 'academy' ? 'Oscar results' : 'Your recommendations')) : ''}
+            sortEnabled withReason reasonLocale={message.locale} eager={index === messages.length - 1} open={open} />
           {message === pending?.reply && <p className="chat-progress" role="status">
-            {pending.stage === 'ratings' ? 'Loading film ratings…' : 'Verifying more film matches…'}
+            {t(pending.stage === 'ratings' ? 'Loading film ratings…' : 'Verifying more film matches…')}
           </p>}
           {index === messages.length - 1 && !busy && message.source !== 'academy' && ((message.movies?.length || 0) > 0 || message.followUps?.length > 0) &&
             <div className="followups">
-              {message.movies?.length > 0 && <button className="prompt-chip more-picks" onClick={onMore}><Plus size={16} /> More picks</button>}
-              {message.followUps?.map((text, index) => <button key={`${index}-${text}`} className="prompt-chip" onClick={() => submit(text)}>{text}</button>)}
+              {message.movies?.length > 0 && <button className="prompt-chip more-picks" onClick={onMore}><Plus size={16} /> {t('More picks')}</button>}
+              {message.followUps?.map((text, index) => <button key={`${index}-${text}`} className="prompt-chip" lang={message.locale} onClick={() => submit(text)}>{text}</button>)}
             </div>}
         </section>)}
-      {busy && !pending.reply && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {progress[pending.stage] || 'Curating your film recommendations'}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
-      {error && <div ref={turnStatus} className="chat-error" role="alert"><p>{error}</p><button className="button secondary" onClick={retry}>Try again</button></div>}
+      {busy && !pending.reply && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {t(progress[pending.stage] || 'Curating your film recommendations')}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
+      {error && <div ref={turnStatus} className="chat-error" role="alert"><p>{error}</p><button className="button secondary" onClick={retry}>{t('Try again')}</button></div>}
     </div>
     <div className="sticky-composer" ref={composerArea}>{composer}</div>
   </div> : <div className="content home-content">
     <section className="hero">
       <div className="hero-copy">
-        <h1>What are you in<br /><em>the mood for?</em></h1>
-        <p>Tell us how you’re feeling, what you love, or what you’re curious about. Find a film that fits.</p>
+        <h1>{t('What are you in')}<br /><em>{t('the mood for?')}</em></h1>
+        <p>{t('Tell us how you’re feeling, what you love, or what you’re curious about. Find a film that fits.')}</p>
       </div>
     </section>
     <div className="home-composer">
       {composer}
-      <div className="prompt-list" aria-label="Try a movie prompt">
-        {prompts.map(([Icon, label, text]) => <button className="prompt-chip" key={label} onClick={() => submit(text)}><Icon size={16} />{label}</button>)}
+      <div className="prompt-list" aria-label={t('Try a movie prompt')}>
+        {prompts.map(([Icon, label, text]) => <button className="prompt-chip" key={label} onClick={() => submit(t(text))}><Icon size={16} />{t(label)}</button>)}
       </div>
     </div>
   </div>

@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises'
+import { appLocale, awardLabel, inLanguage, locales } from '../shared/locale.js'
 import { academySource, academyWinners, directOscarQuestion, explicitOscarFilters, latestOscarYear, requestsOscarWins, verifiedOscarWins } from './oscars.js'
 import { geminiKey, geminiModel, movieByImdb, normalize, providers, requireTmdb, resolveFilm, yearOf } from './providers.js'
 import { withRatingsFor } from './ratings.js'
@@ -11,6 +12,8 @@ const generationBudget = 40_000
 const maxRecommendations = 10
 const alternateCandidates = 2
 const countWords = 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'.split(' ')
+const frenchCountWords = 'un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix sept|dix huit|dix neuf|vingt'.split('|')
+const frenchStatedCount = new RegExp(`\\b(?:recommande|propose|donne|suggere|montre|je veux|top)(?: moi)? (\\d{1,3}|${frenchCountWords.join('|')}) films?\\b`)
 const countToken = `(\\d{1,3}|${countWords.join('|')})`
 const statedCount = new RegExp(
   `\\b(?:top|(?:short ?list|list) of|(?:give|show) (?:me|us)|recommend(?: me)?|suggest(?: me)?|pick|find(?: me)?|need|want) ` +
@@ -22,7 +25,11 @@ export function requireRecommendations(messages, options = {}) {
   const awardQuestion = !options.lockFilters && directOscarQuestion(messages?.at(-1)?.text)
   if (awardQuestion) return awardQuestion
   requireTmdb()
-  if (!geminiKey) throw new RequestError('Movie chat needs a Gemini API key. Set GEMINI_API_KEY in .env and restart the server.', 503)
+  if (!geminiKey) throw new RequestError({
+    en: 'Movie chat needs a Gemini API key. Set GEMINI_API_KEY in .env and restart the server.',
+    ko: '영화 추천에 Gemini API 키가 필요합니다. .env에 GEMINI_API_KEY를 설정하고 서버를 재시작해 주세요.',
+    fr: 'Les recommandations nécessitent une clé Gemini. Définissez GEMINI_API_KEY dans .env, puis redémarrez le serveur.'
+  }, 503)
 }
 
 const string = { type: 'string' }
@@ -61,7 +68,7 @@ const recommendationSchema = {
 }
 
 const instructions = [
-  'You are FeelINFilm, a conversational movie guide. Answer in the user’s language in plain text.',
+  'You are FeelINFilm, a conversational movie guide. Write in plain text.',
   'Pick real films from your full knowledge of cinema. Prefer feature films unless the user requests shorts or a short-film award category. Follow the user’s mood, taste and current request. Keep prior constraints unless the user changes them.',
   'For a recommendation request, set count to 3 or 4 for a quick decision or a narrow request, and 5 or 6 for a typical request. Use 8 to 10 when the newest user request explicitly asks for a long list without a specific number.',
   `Set requestedCount only if the newest user request specifies how many films to show. Use that number up to ${maxRecommendations} as the target when selecting picks. A release year, decade, runtime, or rating is never a requested count.`,
@@ -130,7 +137,9 @@ function hasNames(values, requested) {
 
 function recommendationLimit(reply, prompt) {
   const token = statedCount.exec(prompt)?.[1]
-  const exact = Number(token) || countWords.indexOf(token) + 1
+  const koreanCount = /(?:^|\s)(\d{1,3})\s*편\s*(?:(?:만|을)\s*)?(?:추천|골라|알려|보여)/.exec(prompt.normalize('NFC'))?.[1]
+  const frenchToken = frenchStatedCount.exec(prompt)?.[1]
+  const exact = Number(token || koreanCount || frenchToken) || countWords.indexOf(token) + 1 || frenchCountWords.indexOf(frenchToken) + 1
   if (exact > 0) return Math.min(exact, maxRecommendations)
   if (/\b(?:short ?list|quick (?:list|picks?|decision))\b/.test(prompt)) return reply.count === 3 ? 3 : 4
   if (Number.isSafeInteger(reply.requestedCount) && reply.requestedCount > 0) {
@@ -140,6 +149,12 @@ function recommendationLimit(reply, prompt) {
 }
 
 function explicitRuntimeLimit(prompt) {
+  const korean = /(?:^|\s)(\d{1,3})\s*분\s*(이하|미만)/.exec(prompt.normalize('NFC'))
+  if (korean) return Number(korean[1]) - Number(korean[2] === '미만')
+  const french = /\bmoins de (\d{1,3}) (?:minutes?|min)\b|\b(\d{1,3}) (?:minutes?|min) (?:ou moins|maximum|au plus)\b/.exec(prompt)
+  if (french && !/\b(?:pas|evite|exclus)(?: [a-z]+){0,2} $/.test(prompt.slice(0, french.index))) {
+    return Number(french[1] || french[2]) - Number(Boolean(french[1]))
+  }
   const match = /\b(under|less than|at most|up to|no more than) (\d{1,3}) (?:minutes?|mins?)\b|\b(\d{1,3}) (?:minutes?|mins?) or less\b/.exec(prompt)
   if (!match || /\b(?:not|avoid|exclude|except|no)(?: [a-z]+){0,2} $/.test(prompt.slice(0, match.index))) return 0
   const strict = match[1] === 'under' || match[1] === 'less than'
@@ -158,7 +173,7 @@ function matchesMovie(movie, filters) {
     (!earliest || year >= earliest) && (!latest || (year && year <= latest)) &&
     (!longest || (movie.runtime && movie.runtime <= longest)) && (!shortest || movie.runtime >= shortest) &&
     (!languages.length || languages.includes(movie.language)) &&
-    hasNames(movie.directors, list(filters, 'directors')) &&
+    hasNames(movie.creditedDirectors, list(filters, 'directors')) &&
     hasNames(movie.creditedCast, list(filters, 'cast')) &&
     hasNames(movie.genres, list(filters, 'requiredGenres')) &&
     !movie.genres.some(genre => excluded.includes(normalize(genre)))
@@ -178,7 +193,9 @@ function matchesRatings(movie, filters) {
     })
 }
 
-async function askGemini(model, contents, signal, timeout) {
+async function askGemini(model, contents, signal, timeout, locale) {
+  const language = locales[locale].gemini
+  const languageInstruction = `The site language is ${language}. Write the text, every movie reason, and every follow-up prompt in ${language} only. The site setting determines the output language. Do not infer it from names, film titles, or any message in the conversation, and do not switch languages on request. Keep movie title and filter fields in their matching formats as described below.`
   const generationConfig = { responseMimeType: 'application/json', responseJsonSchema: recommendationSchema, maxOutputTokens: 4500 }
   const thinkingLevel = { [fallbackModel]: 'MINIMAL', 'gemini-3.8-flash': 'LOW' }[model]
   if (thinkingLevel) generationConfig.thinkingConfig = { thinkingLevel }
@@ -187,7 +204,7 @@ async function askGemini(model, contents, signal, timeout) {
     {
       signal, method: 'POST',
       headers: { 'x-goog-api-key': geminiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: instructions }] }, contents, generationConfig })
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: `${languageInstruction}\n${instructions}` }] }, contents, generationConfig })
     }, 'Gemini', timeout, { model }
   )
   try {
@@ -196,17 +213,21 @@ async function askGemini(model, contents, signal, timeout) {
     if (typeof reply.text !== 'string' || !Array.isArray(reply.movies)) throw new Error('Invalid reply shape')
     return reply
   } catch {
-    throw new RequestError('Gemini didn’t return a complete reply. Try again or shorten the request.', 502)
+    throw new RequestError({
+      en: 'Gemini didn’t return a complete reply. Try again or shorten the request.',
+      ko: 'Gemini 답변이 완성되지 않았습니다. 다시 시도하거나 요청을 짧게 입력해 주세요.',
+      fr: 'La réponse de Gemini est incomplète. Réessayez ou raccourcissez votre demande.'
+    }, 502)
   }
 }
 
-async function generateRecommendation(contents, emit, signal) {
+async function generateRecommendation(contents, emit, signal, locale) {
   const cooldown = retryPreferredAfter
   const model = Date.now() < cooldown ? fallbackModel : geminiModel
   const deadline = performance.now() + generationBudget
   try {
     const timeout = model === fallbackModel ? flashLiteTimeout : preferredTimeout
-    return { model, reply: await askGemini(model, contents, signal, timeout) }
+    return { model, reply: await askGemini(model, contents, signal, timeout, locale) }
   } catch (error) {
     signal?.throwIfAborted()
     const retryModel = model === fallbackModel ? geminiModel : fallbackModel
@@ -220,14 +241,14 @@ async function generateRecommendation(contents, emit, signal) {
     const remaining = Math.floor(deadline - performance.now())
     if (remaining <= 0) throw error
     const retryTimeout = retryModel === fallbackModel ? flashLiteTimeout : preferredTimeout
-    const reply = await askGemini(retryModel, contents, signal, Math.min(retryTimeout, remaining))
+    const reply = await askGemini(retryModel, contents, signal, Math.min(retryTimeout, remaining), locale)
     if (model !== fallbackModel) retryPreferredAfter = Date.now() + 60_000
     return { model: retryModel, reply }
   }
 }
 
-function publicCard({ id, title, date, poster, language, genres, runtime, imdbId, rtUrl, letterboxdUrl, ratings, directors, reason, oscarWins }) {
-  return { id, title, date, poster, language, genres, runtime, imdbId, rtUrl, letterboxdUrl, ratings, directors, reason, oscarWins }
+function publicCard({ id, title, titles, date, poster, language, genres, runtime, imdbId, rtUrl, letterboxdUrl, ratings, directors, reason, oscarWins }) {
+  return { id, title, titles, date, poster, language, genres, runtime, imdbId, rtUrl, letterboxdUrl, ratings, directors, reason, oscarWins }
 }
 
 function rankedMatches(results, limit) {
@@ -245,9 +266,9 @@ function rankedMatches(results, limit) {
   return [...matches.values()]
 }
 
-async function verifyCandidates(candidates, verify, limit, publish, signal) {
+async function verifyCandidates(candidates, verify, limit, publish, signal, locale) {
   const pending = new Map(candidates.map((candidate, index) => [index,
-    resolveFilm(candidate, signal).then(movie => ({ index, movie }), error => ({ index, error }))
+    resolveFilm(candidate, signal, locale).then(movie => ({ index, movie }), error => ({ index, error }))
   ]))
   const results = Array(candidates.length)
   let firstError
@@ -274,45 +295,64 @@ async function verifyCandidates(candidates, verify, limit, publish, signal) {
   return matches
 }
 
-async function answerOscarQuestion({ year, category, key }, emit, signal) {
+async function answerOscarQuestion({ year, category, key }, emit, signal, locale) {
   const winners = academyWinners(year, key)
   const criteria = { oscarWinner: true, oscarCeremonyYear: year, oscarCategories: [category] }
-  const base = { source: 'academy', criteria, awardSource: academySource(year), followUps: [] }
+  const base = { source: 'academy', locale, criteria, awardSource: academySource(year), followUps: [] }
   if (!winners.length) return {
     ...base, movies: [],
-    text: year > latestOscarYear ? `The Academy Awards records in FeelINFilm cover ceremonies through ${latestOscarYear}.`
-      : `I couldn’t find a recorded winner in that category at the ${year} Oscars.`
+    text: year > latestOscarYear ? awardsCoverage(locale)
+      : inLanguage(locale, {
+        en: `I couldn’t find a recorded winner in that category at the ${year} Oscars.`,
+        ko: `${year}년 아카데미 시상식의 해당 부문 수상 기록을 찾지 못했어요.`,
+        fr: `Je n’ai pas trouvé de lauréat dans cette catégorie aux Oscars ${year}.`
+      })
   }
 
-  const text = winners.map(win => {
-    const award = win.recipients ? `${win.recipients} won ${win.category} for ${win.title}` : `${win.title} won ${win.category}`
-    return `${award} at the ${year} Oscars.`
-  }).join(' ')
-  const result = { ...base, text, movies: [] }
-  if (!providers.tmdb) return result
+  function resultFor(movies) {
+    const titles = new Map(movies.map(movie => [movie.imdbId, movie.title]))
+    const text = winners.map(win => {
+      const title = titles.get(win.imdbId) || win.title
+      if (locale === 'ko') {
+        const film = `《${title}》`
+        const subject = win.recipients ? `${win.recipients} (${film})` : film
+        return `${year}년 아카데미 시상식 ${awardLabel(win.category, locale)} 수상${win.recipients ? '자는' : '작은'} ${subject}입니다.`
+      }
+      if (locale === 'fr') {
+        const film = `« ${title} »`
+        const subject = win.recipients ? `${win.recipients} pour ${film}` : film
+        return `Aux Oscars ${year}, le prix « ${awardLabel(win.category, locale)} » a été décerné à ${subject}.`
+      }
+      const award = win.recipients ? `${win.recipients} won ${win.category} for ${win.title}` : `${win.title} won ${win.category}`
+      return `${award} at the ${year} Oscars.`
+    }).join(' ')
+    return { ...base, text, movies: movies.map(publicCard) }
+  }
+  if (!providers.tmdb) return resultFor([])
 
   emit({ type: 'stage', stage: 'matching' })
   const imdbIds = [...new Set(winners.map(win => win.imdbId))]
-  const lookedUp = await Promise.allSettled(imdbIds.map(movieByImdb))
+  const lookedUp = await Promise.allSettled(imdbIds.map(id => movieByImdb(id, locale)))
   signal?.throwIfAborted()
   const matches = lookedUp.flatMap(item => item.status === 'fulfilled' && item.value
     ? [{ ...item.value, oscarWins: verifiedOscarWins(item.value.imdbId, criteria) }] : [])
-  if (!matches.length) return result
+  if (!matches.length) return resultFor([])
 
-  emit({ type: 'cards', result: { ...result, movies: matches.map(publicCard) } })
+  emit({ type: 'cards', result: resultFor(matches) })
   emit({ type: 'stage', stage: 'ratings' })
   const movies = await withRatingsFor(matches)
   signal?.throwIfAborted()
-  return { ...result, movies: movies.map(publicCard) }
+  return resultFor(movies)
 }
 
 export async function liveRecommendations(messages, excluded, emit = () => {}, signal, options = {}) {
+  const locale = appLocale(options.locale)
   const awardQuestion = requireRecommendations(messages, options)
-  if (awardQuestion) return answerOscarQuestion(awardQuestion, emit, signal)
+  if (awardQuestion) return answerOscarQuestion(awardQuestion, emit, signal, locale)
   emit({ type: 'stage', stage: 'gemini' })
   const carriedFilters = filterSet(options.filters)
   const contents = chatContents(messages, excluded, carriedFilters, options.lockFilters, options.watchedTitles)
-  const { model, reply } = await generateRecommendation(contents, emit, signal)
+  const { model, reply } = await generateRecommendation(contents, emit, signal, locale)
   signal?.throwIfAborted()
 
   const latestPrompt = messages.at(-1)?.text
@@ -324,12 +364,21 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   const candidates = reply.movies.slice(0, limit + alternateCandidates).filter(movie => movie && typeof movie === 'object')
   const awardRequest = requestsOscarWins(filters)
   const awardSource = academySource(filters.oscarCeremonyYear)
-  const text = awardRequest ? 'The Academy Award wins are shown on each film card.' : reply.text.trim().slice(0, 1000)
+  const text = awardRequest ? inLanguage(locale, {
+    en: 'The Academy Award wins are shown on each film card.', ko: '영화 카드에서 아카데미 수상 부문을 확인할 수 있어요.',
+    fr: 'Chaque carte indique les Oscars remportés par le film.'
+  }) : reply.text.trim().slice(0, 1000)
   const followUps = Array.isArray(reply.followUps) ? [...new Set(reply.followUps.filter(value => typeof value === 'string').map(value => value.trim().slice(0, 110)).filter(Boolean))].slice(0, 3) : []
-  const base = { source: 'gemini', model, criteria: filters, text: text || 'Here are a few films to explore.', followUps, awardSource }
+  const base = { source: 'gemini', locale, model, criteria: filters, followUps, awardSource,
+    text: text || inLanguage(locale, {
+      en: 'Here are a few films to explore.', ko: '이 영화들을 추천해 드려요.', fr: 'Voici quelques films à découvrir.'
+    }) }
   if (!candidates.length) return {
     ...base,
-    text: awardRequest ? missesText(filters, excluded.length, options.watchedIds?.length) : text || 'What kind of movie are you in the mood for?',
+    text: awardRequest ? missesText(filters, excluded.length, options.watchedIds?.length, locale)
+      : text || inLanguage(locale, {
+        en: 'What kind of movie are you in the mood for?', ko: '어떤 영화가 보고 싶으세요?', fr: 'Quel genre de film avez-vous envie de voir ?'
+      }),
     movies: []
   }
 
@@ -345,27 +394,55 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
     return oscarWins.length ? { ...movie, reason: '', oscarWins } : null
   }
 
-  const matches = await verifyCandidates(candidates, verify, needsRatings ? candidates.length : limit, publish, signal)
+  const matches = await verifyCandidates(candidates, verify, needsRatings ? candidates.length : limit, publish, signal, locale)
   if (matches.length) emit({ type: 'stage', stage: 'ratings' })
   const enriched = await withRatingsFor(matches)
   signal?.throwIfAborted()
   const movies = enriched.filter(movie => matchesRatings(movie, filters)).slice(0, limit).map(publicCard)
   return {
     ...base,
-    text: movies.length ? base.text : missesText(filters, excluded.length, watchedIds.length),
+    text: movies.length ? base.text : missesText(filters, excluded.length, watchedIds.length, locale),
     movies
   }
 }
 
-function missesText(filters, excludedCount, watchedCount) {
+function awardsCoverage(locale) {
+  return inLanguage(locale, {
+    en: `The Academy Awards records in FeelINFilm cover ceremonies through ${latestOscarYear}.`,
+    ko: `FeelINFilm에서 확인할 수 있는 아카데미 수상 기록은 ${latestOscarYear}년 시상식까지예요.`,
+    fr: `FeelINFilm couvre le palmarès des Oscars jusqu’à la cérémonie de ${latestOscarYear}.`
+  })
+}
+
+function missesText(filters, excludedCount, watchedCount, locale) {
   if (filters.oscarCeremonyYear > latestOscarYear || filters.oscarStartYear > latestOscarYear) {
-    return `The Academy Awards records in FeelINFilm cover ceremonies through ${latestOscarYear}.`
+    return awardsCoverage(locale)
   }
   if (positive(filters, 'minLetterboxd') || positive(filters, 'minTomatometer') || positive(filters, 'minIMDb')) {
-    return 'I couldn’t verify the requested scores for enough matches. Try a different score source or ask for picks without a score minimum.'
+    return inLanguage(locale, {
+      en: 'I couldn’t verify the requested scores for enough matches. Try a different score source or ask for picks without a score minimum.',
+      ko: '요청한 평점을 확인할 수 있는 영화가 부족해요. 다른 평점 기준을 사용하거나 최저 점수 조건을 빼고 다시 요청해 보세요.',
+      fr: 'Je n’ai pas pu vérifier les notes demandées pour assez de films. Essayez une autre source ou demandez des films sans note minimale.'
+    })
   }
-  if (watchedCount) return 'I couldn’t find fresh matches. Try broadening your request or including watched films.'
-  if (requestsOscarWins(filters)) return 'I couldn’t verify a fresh winner matching those criteria. Try a broader category or another ceremony.'
-  if (excludedCount) return 'I couldn’t verify any fresh matches for these constraints. Try loosening one of them.'
-  return 'I couldn’t verify any matches for this request. Try adjusting a constraint or giving me another example film.'
+  if (watchedCount) return inLanguage(locale, {
+    en: 'I couldn’t find fresh matches. Try broadening your request or including watched films.',
+    ko: '조건에 맞는 새 영화를 찾지 못했어요. 조건을 넓히거나 이미 본 영화도 포함해 보세요.',
+    fr: 'Je n’ai pas trouvé d’autres films qui correspondent. Élargissez vos critères ou incluez les films déjà vus.'
+  })
+  if (requestsOscarWins(filters)) return inLanguage(locale, {
+    en: 'I couldn’t verify a fresh winner matching those criteria. Try a broader category or another ceremony.',
+    ko: '조건에 맞는 다른 수상작을 확인하지 못했어요. 부문을 넓히거나 다른 연도의 시상식을 찾아보세요.',
+    fr: 'Je n’ai pas pu confirmer d’autre lauréat répondant à vos critères. Essayez d’élargir les catégories ou de choisir une autre cérémonie.'
+  })
+  if (excludedCount) return inLanguage(locale, {
+    en: 'I couldn’t verify any fresh matches for these constraints. Try loosening one of them.',
+    ko: '조건에 맞는 새 영화를 확인하지 못했어요. 조건을 하나 줄여 보세요.',
+    fr: 'Je n’ai pas pu vérifier d’autres films répondant à ces critères. Essayez d’assouplir l’un d’eux.'
+  })
+  return inLanguage(locale, {
+    en: 'I couldn’t verify any matches for this request. Try adjusting a constraint or giving me another example film.',
+    ko: '조건에 맞는 영화를 확인하지 못했어요. 조건을 조정하거나 좋아하는 영화를 하나 더 알려 주세요.',
+    fr: 'Je n’ai pas pu vérifier de films répondant à cette demande. Modifiez un critère ou donnez un autre exemple de film.'
+  })
 }
