@@ -18,11 +18,11 @@ const searchableTitle = title => title.normalize('NFKD').replace(/\p{M}/gu, '').
 
 export function Watchlist({ watched, open }) {
   const { locale, t } = useLanguage()
-  const { movies: savedMovies, watchedMovies } = useWatchlist()
+  const { movies: savedMovies, watchedMovies, watchedById } = useWatchlist()
   const [editingId, setEditingId] = useState(null)
   const [query, setQuery] = useState('')
   const input = useRef(null)
-  const editing = watched && watchedMovies.find(movie => movie.id === editingId)
+  const editing = watched && watchedById.get(editingId)
   const entryDate = watched ? { field: 'markedWatchedAt', label: 'Watched status', includeYear: true } : { field: 'savedAt', label: 'Saved' }
   const actionTime = movie => Date.parse(movie[entryDate.field]) || 0
   const movies = watched ? watchedMovies : savedMovies

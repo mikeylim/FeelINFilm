@@ -83,7 +83,7 @@ function previouslyShown(messages) {
 
 function App() {
   const { locale, setLocale, t } = useLanguage()
-  const { refresh, excludeWatched, watchedMovies, watchedIds } = useWatchlist()
+  const { refresh, excludeWatched, watchedMovies, watchedById } = useWatchlist()
   const [path, setPath] = useState(readPath)
   const [returnPath, setReturnPath] = useState(() => window.history.state?.from || '/lookup')
   const [filmTitle, setFilmTitle] = useState('')
@@ -209,7 +209,7 @@ function App() {
         `${message.text}\nFilms recommended: ${message.movies.map(movie => `${movie.title} (${movieYear(movie) || 'year unknown'})`).join(', ')}`.slice(0, 1600) : message.text
     }))
     const watched = excludeWatched && watchedMovies.length ? {
-      ids: [...watchedIds],
+      ids: [...watchedById.keys()],
       recentTitles: watchedMovies.slice(0, 30).map(movie => {
         const title = movie.title.slice(0, 160)
         const year = movieYear(movie)

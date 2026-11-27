@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { ArrowUpRight, ChevronLeft, Clapperboard, Play, Trophy, UserRound } from 'lucide-react'
 import { genreLabel } from '../shared/locale.js'
 import { MovieShelf, Poster, Ratings, WatchedButton, WatchlistButton } from './Movies'
+import { PersonalRatingEditor } from './PersonalRating'
 import { api, awardsSummary, languageName, linkOut, movieYear, releaseDate, runtimeText } from './utils'
 import { useWatchlist } from './WatchlistState'
 
@@ -15,7 +16,7 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
   const [film, setFilm] = useState(null)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
-  const { refresh } = useWatchlist()
+  const { refresh, watchedById } = useWatchlist()
   useEffect(() => {
     const request = new AbortController()
     api(`films/${id}`, { signal: request.signal, locale }).then(movie => {
@@ -40,6 +41,7 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
     </> : t('Loading film details…')}</div>
   </div>
 
+  const watchedEntry = watchedById.get(film.id)
   const facts = [movieYear(film), runtimeText(film.runtime, locale), film.certification, languageName(film.language, locale)].filter(Boolean)
   const rows = [
     ['Release date', releaseDate(film.date, locale)], ['Original title', film.titleOriginal],
@@ -68,6 +70,7 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
         </div>
       </div>
     </section>
+    {watchedEntry && <PersonalRatingEditor movie={film} rating={watchedEntry.starRating} />}
     <section className="detail-section rating-section">
       <h2>{t('Ratings')}</h2>
       <Ratings movie={film} detailed />

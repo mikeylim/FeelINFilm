@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Star, Trophy } from 'lucide-react'
+import { ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Trophy } from 'lucide-react'
 import { awardLabel, genreLabel, locales } from '../shared/locale.js'
 import { useLanguage } from './Language'
-import { filmPath, languageName, linkOut, movieTitle, movieYear, parseCalendarDate, runtimeText } from './utils'
+import { PersonalRatingSummary } from './PersonalRating'
+import { filmPath, isStarRating, languageName, linkOut, movieTitle, movieYear, parseCalendarDate, runtimeText } from './utils'
 import { WatchDateDialog } from './WatchDateDialog'
 import { useWatchlist } from './WatchlistState'
 
@@ -53,7 +54,7 @@ export function Ratings({ movie, detailed = false }) {
         {detailed && <ArrowUpRight size={14} />}
       </a>
       {detailed && Boolean(movie.vote) && <a href={`https://www.themoviedb.org/movie/${movie.id}`} {...linkOut} title={t('TMDB community rating')}>
-        <Star size={15} /><span>{formatScore(movie.vote.toFixed(1))}/10</span><span className="rating-label">TMDB</span><ArrowUpRight size={14} />
+        <span className="rating-label">TMDB</span><span>{formatScore(movie.vote.toFixed(1))}/10</span><ArrowUpRight size={14} />
       </a>}
     </div>
   </div>
@@ -74,10 +75,10 @@ export function WatchlistButton({ movie, overlay = false }) {
 
 export function WatchedButton({ movie, overlay = false, removeDirectly = false }) {
   const { locale, t } = useLanguage()
-  const { watchedIds, watchedMovies, toggleWatched } = useWatchlist()
+  const { watchedById, toggleWatched } = useWatchlist()
   const [editor, setEditor] = useState(null)
-  const watched = watchedIds.has(movie.id)
-  const entry = editor && watchedMovies.find(item => item.id === movie.id)
+  const entry = watchedById.get(movie.id)
+  const watched = Boolean(entry)
   const Icon = watched ? Check : Eye
   const style = overlay ? 'movie-save' : 'button detail-secondary watchlist-action'
   const title = movieTitle(movie, locale)
@@ -94,7 +95,7 @@ export function WatchedButton({ movie, overlay = false, removeDirectly = false }
       <Icon size={16} aria-hidden="true" />
       {!overlay && t('Already watched')}
     </button>
-    {entry && <WatchDateDialog movie={entry} onClose={() => setEditor(null)}
+    {editor && entry && <WatchDateDialog movie={entry} onClose={() => setEditor(null)}
       newlyMarked={editor === 'new'} allowRemove={editor === 'edit'} />}
   </>
 }
@@ -147,6 +148,7 @@ export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryD
       </div>
     </div>
     <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{title}</a>
+    <PersonalRatingSummary movie={movie} showLabel={!onEditWatchDate} />
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
     {actionDate && <p className="movie-list-date">{t(entryDate.label)} <time dateTime={timestamp}>{actionDate}</time></p>}
     {onEditWatchDate && <button type="button" className="watch-date-button"
@@ -167,6 +169,7 @@ const sortChoices = [
 ]
 const positive = value => Number.parseFloat(value) || 0
 const dateWatched = movie => parseCalendarDate(movie.watchedOn) ? movie.watchedOn : ''
+const personalScore = ({ starRating }) => isStarRating(starRating) ? starRating : 0
 function sortMovies(movies, sort, locale) {
   const compare = {
     imdb: (a, b) => positive(b.ratings?.imdb) - positive(a.ratings?.imdb),
@@ -175,6 +178,7 @@ function sortMovies(movies, sort, locale) {
     recent: (a, b) => (b.date || '').localeCompare(a.date || ''),
     oldest: (a, b) => (a.date || '9999').localeCompare(b.date || '9999'),
     watchedOn: (a, b) => dateWatched(b).localeCompare(dateWatched(a)),
+    personalRating: (a, b) => personalScore(b) - personalScore(a),
     short: (a, b) => (a.runtime || Infinity) - (b.runtime || Infinity),
     title: (a, b) => movieTitle(a, locale).localeCompare(movieTitle(b, locale), locale)
   }[sort]
@@ -187,7 +191,9 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
   const [sort, setSort] = useState('match')
   const [bounds, setBounds] = useState({ previous: false, next: false })
   const ordered = sortMovies(movies, sort, locale)
-  const choices = onEditWatchDate ? [sortChoices[0], ['watchedOn', 'Date watched (newest)'], ...sortChoices.slice(1)] : sortChoices
+  const choices = onEditWatchDate
+    ? [sortChoices[0], ['watchedOn', 'Date watched (newest)'], ['personalRating', 'My rating'], ...sortChoices.slice(1)]
+    : sortChoices
 
   useEffect(() => {
     const element = list.current

@@ -386,6 +386,24 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .watch-date-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 9px; }
 .clear-watch-date { margin-right: auto; }
 .watch-date-actions button:disabled { opacity: .55; }
+.personal-rating-editor {
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px;
+  margin-top: 14px; padding: 2px 0; border-bottom: 1px solid var(--line-soft);
+}
+.personal-rating-label { min-width: 7.5rem; font-size: .9rem; font-weight: 650; }
+.personal-rating-label strong { display: inline-block; min-width: 3ch; margin-left: 4px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.personal-rating-controls, .personal-rating-stars { display: flex; align-items: center; }
+.personal-rating-controls { gap: 4px; }
+.personal-rating-star { position: relative; display: flex; width: 48px; height: 44px; }
+.personal-rating-star-icon { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; color: var(--quiet); }
+.personal-rating-star-icon > svg { grid-area: 1 / 1; }
+.personal-rating-star-fill { color: var(--accent); }
+.personal-rating-star-fill.is-half { clip-path: inset(0 50% 0 0); }
+.personal-rating-choice { position: relative; flex: 1; min-width: 0; border-radius: 5px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.personal-rating-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -3px; }
+.personal-rating-summary { display: flex; align-items: center; gap: 5px; margin: 4px 0 2px; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.personal-rating-summary > svg { color: var(--accent); }
+.personal-rating-caption { color: var(--muted); font-size: .79rem; }
 .provider-status { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
 .provider-status div { display: flex; justify-content: space-between; padding: 6px 0; gap: 8px; font-size: .85rem; }
 .provider-status div + div { border-top: 1px solid var(--line-soft); }

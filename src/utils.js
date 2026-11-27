@@ -136,6 +136,11 @@ export function parseCalendarDate(date) {
   return !Number.isNaN(value.getTime()) && value.toISOString().slice(0, 10) === date ? value : null
 }
 
+export const maxStarRating = 5
+export const starRatingStep = 0.5
+export const isStarRating = value => typeof value === 'number' && value >= starRatingStep &&
+  value <= maxStarRating && Number.isInteger(value / starRatingStep)
+
 export const filmPath = movie => `/movie/${movie.id}`
 export const linkOut = { target: '_blank', rel: 'noopener noreferrer' }
 export const readPath = () => window.location.pathname + window.location.search

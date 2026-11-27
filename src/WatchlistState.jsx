@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { parseCalendarDate, readStorage, saveStorage } from './utils'
+import { isStarRating, parseCalendarDate, readStorage, saveStorage } from './utils'
 
 const WatchlistContext = createContext(null)
 
@@ -7,7 +7,16 @@ function readFilms(key) {
   const saved = readStorage(key, [])
   if (!Array.isArray(saved)) return []
   const valid = saved.filter(movie => Number.isSafeInteger(movie?.id) && typeof movie.title === 'string')
-  return [...new Map(valid.map(movie => [movie.id, movie])).values()]
+  const films = [...new Map(valid.map(movie => [movie.id, movie])).values()]
+  if (key !== 'watched') return films
+
+  return films.map(movie => {
+    if (!Object.hasOwn(movie, 'personalRating')) return movie
+    const { personalRating, ...entry } = movie
+    const validOldScore = typeof personalRating === 'number' && personalRating >= 0.5 && personalRating <= 10 && Number.isInteger(personalRating * 2)
+    // Convert the previous ten-point rating to the nearest half star once.
+    return validOldScore && !isStarRating(entry.starRating) ? { ...entry, starRating: Math.round(personalRating) / 2 } : entry
+  })
 }
 
 function filmCard(movie, existing = {}) {
@@ -94,6 +103,12 @@ export function WatchlistProvider({ children }) {
       ? { ...movie, watchedOn } : movie))
   }, [setWatchedMovies])
 
+  const setStarRating = useCallback((id, starRating) => {
+    if (starRating !== undefined && !isStarRating(starRating)) return
+    setWatchedMovies(current => current.map(movie => movie.id === id && movie.starRating !== starRating
+      ? { ...movie, starRating } : movie))
+  }, [setWatchedMovies])
+
   const refresh = useCallback(updates => {
     const byId = new Map(updates.map(movie => [movie.id, movie]))
     refreshSaved(byId)
@@ -101,9 +116,10 @@ export function WatchlistProvider({ children }) {
   }, [refreshSaved, refreshWatched])
 
   const savedIds = new Set(movies.map(movie => movie.id))
-  const watchedIds = new Set(watchedMovies.map(movie => movie.id))
+  const watchedById = new Map(watchedMovies.map(movie => [movie.id, movie]))
   return <WatchlistContext.Provider value={{
-    movies, savedIds, toggle, watchedMovies, watchedIds, toggleWatched, setWatchedOn, excludeWatched, setExcludeWatched, refresh
+    movies, savedIds, toggle, watchedMovies, watchedById, toggleWatched, setWatchedOn, setStarRating,
+    excludeWatched, setExcludeWatched, refresh
   }}>{children}</WatchlistContext.Provider>
 }
 
