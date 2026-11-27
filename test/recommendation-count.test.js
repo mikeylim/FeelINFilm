@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { Readable, Writable } from 'node:stream'
 import test from 'node:test'
+import { maxChatFilms } from '../shared/chat-films.js'
 
 process.env.GEMINI_API_KEY = 'gemini-test-key'
 process.env.TMDB_READ_ACCESS_TOKEN = 'tmdb-test-token'
@@ -7,6 +9,7 @@ delete process.env.MDBLIST_API_KEY
 delete process.env.OMDB_API_KEY
 
 const { liveRecommendations } = await import('../server/recommendations.js')
+const { handleApi } = await import('../server/api.js')
 
 let nextId = 1
 function mockRecommendations(t, fields, runtime = () => 100, beforeDetails = () => {}) {
@@ -16,11 +19,13 @@ function mockRecommendations(t, fields, runtime = () => 100, beforeDetails = () 
   })
   const searches = []
   const systemInstructions = []
+  const conversations = []
   t.mock.method(globalThis, 'fetch', async (input, options) => {
     const url = new URL(input)
     if (url.hostname === 'generativelanguage.googleapis.com') {
-      const { generationConfig, systemInstruction } = JSON.parse(options.body)
+      const { generationConfig, systemInstruction, contents } = JSON.parse(options.body)
       systemInstructions.push(systemInstruction.parts[0].text)
+      conversations.push(contents)
       assert.equal(generationConfig.responseJsonSchema.properties.movies.maxItems, 12)
       return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
         text: 'These films fit your request.',
@@ -46,7 +51,7 @@ function mockRecommendations(t, fields, runtime = () => 100, beforeDetails = () 
     }
     return Response.json(movie)
   })
-  return { movies, searches, systemInstructions }
+  return { movies, searches, systemInstructions, conversations }
 }
 
 const ask = text => [{ role: 'user', text }]
@@ -142,4 +147,52 @@ test('More picks retains the runtime filter and excludes suggested and watched f
   })
   assert.deepEqual(reply.criteria, { maxRuntime: 90 })
   assert.deepEqual(reply.movies.map(movie => movie.id), [movies[2].id, movies[3].id])
+})
+
+test('chat attaches exact titles to their user messages and accepts a text-only comparison', async t => {
+  const text = 'The 1957 version is shorter at 96 minutes.'
+  const { conversations, searches } = mockRecommendations(t, { text, movies: [] })
+  const first = { id: 389, title: '12 Angry Men', year: 1957, runtime: 96 }
+  const second = { id: 12219, title: '12 Angry Men', year: 1997, runtime: 117 }
+  const previous = { id: 680, title: 'Pulp Fiction', year: 1994, runtime: 154 }
+  const request = Object.assign(Readable.from([Buffer.from(JSON.stringify({
+    messages: [
+      { role: 'user', text: 'How long is this one?', films: [previous] },
+      { role: 'assistant', text: 'It runs 154 minutes.', films: [previous] },
+      { role: 'user', text: 'Which of these is shorter?', films: [
+        { id: -1, title: 'Invalid film' }, { ...first, personalRating: 5 }, first, second,
+        ...Array.from({ length: maxChatFilms }, (_, i) => ({ id: 9000 + i, title: `Other film ${i}` }))
+      ] }
+    ],
+    criteria: { oscarWinner: true }, watched: { ids: [first.id], recentTitles: [first.title] }
+  }))]), {
+    method: 'POST', url: '/api/chat', headers: { 'content-type': 'application/json' }, socket: { remoteAddress: '127.0.0.1' }
+  })
+  const chunks = []
+  const response = new Writable({ write(chunk, _, done) { chunks.push(chunk); done() } })
+  response.writeHead = status => assert.equal(status, 200)
+
+  await handleApi(request, response)
+  const reply = JSON.parse(Buffer.concat(chunks))
+  const [history, model, latest] = conversations[0]
+  const selected = part => JSON.parse(part.text.slice(part.text.indexOf('): ') + 3))
+  assert.deepEqual(selected(history.parts[1]), [previous])
+  assert.deepEqual(model.parts, [{ text: 'It runs 154 minutes.' }])
+  const references = selected(latest.parts[1])
+  assert.equal(references.length, maxChatFilms)
+  assert.deepEqual(references.slice(0, 2), [first, second])
+  assert.deepEqual(reply.movies, [])
+  assert.deepEqual(reply.criteria, { oscarWinner: true })
+  assert.equal(reply.text, text)
+  assert.deepEqual(searches, [])
+})
+
+test('recommendations based on attached films still verify matches and apply watched exclusions', async t => {
+  const { movies, conversations } = mockRecommendations(t, { count: 3 })
+  const films = [{ id: 27205, title: 'Inception', year: 2010 }]
+  const reply = await liveRecommendations([{ role: 'user', text: 'Find more movies like this.', films }], [], undefined, undefined, {
+    watchedIds: [movies[0].id]
+  })
+  assert.match(conversations[0][0].parts[1].text, /"id":27205,"title":"Inception","year":2010/)
+  assert.deepEqual(reply.movies.map(movie => movie.id), movies.slice(1, 4).map(movie => movie.id))
 })

@@ -1,4 +1,5 @@
 import { isIP } from 'node:net'
+import { normalizeChatFilms } from '../shared/chat-films.js'
 import { appLocale, inLanguage } from '../shared/locale.js'
 import { liveDetails, liveSearch, liveTrending, providers, requireTmdb } from './providers.js'
 import { liveRecommendations, requireRecommendations } from './recommendations.js'
@@ -178,8 +179,11 @@ export async function handleApi(request, response) {
         filters: data.criteria, lockFilters: data.lockCriteria === true && Boolean(data.criteria),
         watchedIds, watchedTitles, locale
       }
-      requireRecommendations(data.messages, options)
-      return await replyWith(request, response, (emit, signal) => chatReply(data.messages, excluded, options, emit, signal))
+      const messages = data.messages.map(({ role, text, films }) => ({
+        role, text, films: role === 'user' ? normalizeChatFilms(films) : []
+      }))
+      requireRecommendations(messages, options)
+      return await replyWith(request, response, (emit, signal) => chatReply(messages, excluded, options, emit, signal))
     }
     throw new RequestError({ en: 'This API endpoint could not be found.', ko: '요청하신 API를 찾을 수 없습니다.', fr: 'Cette route de l’API est introuvable.' }, 404)
   } catch (error) {

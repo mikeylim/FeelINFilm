@@ -4,7 +4,7 @@ import { Modal } from './Modal'
 import { movieTitle, parseCalendarDate } from './utils'
 import { useWatchlist } from './WatchlistState'
 
-export function WatchDateDialog({ movie, onClose, newlyMarked = false, allowRemove = false }) {
+export function WatchDateDialog({ movie, onClose, allowRemove = false }) {
   const { locale, t } = useLanguage()
   const { setWatchedOn, toggleWatched } = useWatchlist()
   const inputId = useId()
@@ -30,7 +30,6 @@ export function WatchDateDialog({ movie, onClose, newlyMarked = false, allowRemo
           toggleWatched(movie)
           onClose()
         }}>{t('Remove from Watched')}</button>}
-        <button type="button" className="button secondary" onClick={onClose}>{newlyMarked ? t('Skip date') : t('Cancel')}</button>
         <button className="button primary" type="submit" disabled={!valid}>{t('Save date')}</button>
       </div>
     </form>

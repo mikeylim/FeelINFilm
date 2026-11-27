@@ -22,7 +22,8 @@ const statedCount = new RegExp(
 let retryPreferredAfter = 0
 
 export function requireRecommendations(messages, options = {}) {
-  const awardQuestion = !options.lockFilters && directOscarQuestion(messages?.at(-1)?.text)
+  const latest = messages?.at(-1)
+  const awardQuestion = !options.lockFilters && !latest?.films?.length && directOscarQuestion(latest?.text)
   if (awardQuestion) return awardQuestion
   requireTmdb()
   if (!geminiKey) throw new RequestError({
@@ -74,7 +75,9 @@ const instructions = [
   `Set requestedCount only if the newest user request specifies how many films to show. Use that number up to ${maxRecommendations} as the target when selecting picks. A release year, decade, runtime, or rating is never a requested count.`,
   `Choose the target number of relevant films in order, followed by ${alternateCandidates} alternates that meet the same constraints when available. Keep the same sizing rules for follow-ups.`,
   'For each candidate give its English or international title, its original title if different, its first release year, and one short spoiler-free reason tied to the user’s request. Exclude movies the user named as examples unless they requested those titles.',
-  'Use the intro to explain what connects the picks in one or two sentences. Leave counts, titles, ratings, and factual claims about award wins out of the intro. Details are looked up separately. Ask a clarifying question only when a useful selection is impossible.',
+  'When suggesting new films, use the intro to explain what connects the picks in one or two sentences. Leave counts, titles, ratings, and factual claims about award wins out of the intro. Details are looked up separately.',
+  'Selected films are attached to a specific user message. They identify exactly which titles the user means by references like "this one" and "these". For a question, a comparison, or a choice among the selected films, answer directly in text, name the relevant titles, and return empty movies and filters. Use the supplied runtime in minutes when available. Keep answers spoiler-free unless the user asks for spoilers. Ask a clarifying question only when needed.',
+  'When the user asks for more films like the selected titles, use those films as examples and generate fresh candidates. Prior recommendation filters and exclusions apply to picking new films and do not limit what you can discuss about the selected films.',
   'Set filters only for genuine requirements. For qualitative preferences like great, cozy, dark, or acclaimed pick accordingly. A year in the name of a reference movie does not filter the recommendations. A decade requirement uses its first and last years.',
   'Use maxRuntime and minRuntime for explicit running-time limits in minutes. For under a whole number of minutes, subtract one from that number.',
   'Use originalLanguages only when the user requires original-language films. Use two-letter original language codes. Use requiredGenres for genres each pick must have, with TMDB labels such as Science Fiction and Animation. Use full credited names in directors and cast only when explicitly required.',
@@ -86,16 +89,19 @@ const instructions = [
 
 function chatContents(messages, excluded, carriedFilters, lockFilters, watchedTitles = []) {
   const contents = []
-  for (const { role, text } of messages) {
+  for (const { role, text, films } of messages) {
     const nextRole = role === 'assistant' ? 'model' : 'user'
     if (contents.at(-1)?.role === nextRole) contents.at(-1).parts.push({ text })
     else contents.push({ role: nextRole, parts: [{ text }] })
+    if (role === 'user' && films?.length) {
+      contents.at(-1).parts.push({ text: `Selected films for this message (TMDB IDs; runtime in minutes): ${JSON.stringify(films)}` })
+    }
   }
   if (excluded.length) {
-    contents.at(-1).parts.push({ text: `Exclude these previously suggested films from this reply: ${JSON.stringify(excluded.map(({ title }) => title))}` })
+    contents.at(-1).parts.push({ text: `Exclude these previously suggested titles when recommending new films: ${JSON.stringify(excluded.map(({ title }) => title))}` })
   }
   if (watchedTitles.length) {
-    contents.at(-1).parts.push({ text: `Exclude these films the user has already watched: ${JSON.stringify(watchedTitles)}` })
+    contents.at(-1).parts.push({ text: `Exclude these watched titles when recommending new films: ${JSON.stringify(watchedTitles)}` })
   }
   if (Object.keys(carriedFilters).length) {
     const instruction = lockFilters ? 'These constraints still apply to every alternative.' : 'Here are the previous hard constraints. Carry them forward unless the newest request changes the criteria.'
@@ -355,20 +361,27 @@ export async function liveRecommendations(messages, excluded, emit = () => {}, s
   const { model, reply } = await generateRecommendation(contents, emit, signal, locale)
   signal?.throwIfAborted()
 
-  const latestPrompt = messages.at(-1)?.text
+  const latest = messages.at(-1)
+  const latestPrompt = latest?.text
   const prompt = normalize(latestPrompt?.replace(/\b\d+(?:[.,]\d+|%)/g, ' '))
   const filters = options.lockFilters ? carriedFilters : explicitOscarFilters(filterSet(reply.filters), latestPrompt)
   const maxRuntime = options.lockFilters ? 0 : explicitRuntimeLimit(prompt)
   if (maxRuntime > 0) filters.maxRuntime = maxRuntime
   const limit = recommendationLimit(reply, prompt)
   const candidates = reply.movies.slice(0, limit + alternateCandidates).filter(movie => movie && typeof movie === 'object')
+  const replyText = reply.text.trim().slice(0, 1000)
+  const followUps = Array.isArray(reply.followUps) ? [...new Set(reply.followUps.filter(value => typeof value === 'string').map(value => value.trim().slice(0, 110)).filter(Boolean))].slice(0, 3) : []
+  // A discussion about attached films can answer in prose without replacing the preceding recommendation criteria.
+  if (latest?.films?.length && !candidates.length && replyText) {
+    return { source: 'gemini', locale, model, criteria: carriedFilters, text: replyText, movies: [], followUps }
+  }
+
   const awardRequest = requestsOscarWins(filters)
   const awardSource = academySource(filters.oscarCeremonyYear)
   const text = awardRequest ? inLanguage(locale, {
     en: 'The Academy Award wins are shown on each film card.', ko: '영화 카드에서 아카데미 수상 부문을 확인할 수 있어요.',
     fr: 'Chaque carte indique les Oscars remportés par le film.'
-  }) : reply.text.trim().slice(0, 1000)
-  const followUps = Array.isArray(reply.followUps) ? [...new Set(reply.followUps.filter(value => typeof value === 'string').map(value => value.trim().slice(0, 110)).filter(Boolean))].slice(0, 3) : []
+  }) : replyText
   const base = { source: 'gemini', locale, model, criteria: filters, followUps, awardSource,
     text: text || inLanguage(locale, {
       en: 'Here are a few films to explore.', ko: '이 영화들을 추천해 드려요.', fr: 'Voici quelques films à découvrir.'

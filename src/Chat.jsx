@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  ArrowUp, Clapperboard, Clock, Coffee, Film, Mic, MicOff, Plus, Puzzle, Square, Trophy, Video
+  ArrowUp, Check, Clapperboard, Clock, Coffee, Film, MessageSquarePlus, Mic, MicOff, Plus, Puzzle, Square, Trophy, Video, X
 } from 'lucide-react'
+import { maxChatFilms } from '../shared/chat-films.js'
 import { locales } from '../shared/locale.js'
 import { useLanguage } from './Language'
 import { FilmGuideIcon } from './FilmGuideIcon'
 import { MovieShelf } from './Movies'
-import { linkOut } from './utils'
+import { filmPath, linkOut, movieTitle } from './utils'
 import { useWatchlist } from './WatchlistState'
 
 const prompts = [
@@ -19,7 +20,31 @@ const prompts = [
   [Video, 'Directed by Miyazaki', 'Which movies directed by Hayao Miyazaki should I start with, and why?']
 ]
 
-function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
+function FilmChips({ films, onRemove, open }) {
+  const { t } = useLanguage()
+  const draftChips = useRef(null)
+  const count = useRef(0)
+  useEffect(() => {
+    const chips = draftChips.current
+    if (chips && films.length > count.current) chips.scrollTop = chips.scrollHeight
+    count.current = films.length
+  }, [films.length])
+
+  return <div className="film-chips" ref={onRemove ? draftChips : undefined} role="group" aria-label={t(onRemove ? 'Selected films' : 'Films in this message')}>
+    {films.map(film => {
+      const label = film.year ? `${film.title} (${film.year})` : film.title
+      const title = <span dir="auto">{label}</span>
+      return onRemove ? <button type="button" className="film-chip" key={film.id} title={label}
+        aria-label={t('Remove {title} from this message', { title: label })} onClick={event => onRemove(event, film)}>
+        <Film size={14} aria-hidden="true" />{title}<X size={14} aria-hidden="true" />
+      </button> : <a className="film-chip" title={label} href={filmPath(film)} key={film.id} onClick={event => open(event, filmPath(film))}>
+        <Film size={14} aria-hidden="true" />{title}
+      </a>
+    })}
+  </div>
+}
+
+function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active, selectedFilms, toggleChatFilm }) {
   const { locale, t } = useLanguage()
   const textarea = useRef(null)
   const recognizer = useRef(null)
@@ -27,6 +52,8 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
   const [voiceStatus, setVoiceStatus] = useState('')
   const { watchedMovies, excludeWatched, setExcludeWatched } = useWatchlist()
   const submit = () => { if (!busy && draft.trim()) onSend(draft) }
+  const placeholder = selectedFilms.length ? 'Ask about the selected films…'
+    : active ? 'Ask for more movies or narrow your picks…' : 'Describe a mood, a movie you love, or what you want to watch…'
   useEffect(() => {
     onFocusRef.current = () => textarea.current?.focus()
     return () => {
@@ -84,9 +111,16 @@ function Composer({ draft, setDraft, onSend, stop, busy, onFocusRef, active }) {
   return <div className="composer-wrap">
     {voiceStatus && <div className="voice-status" role="status">{t(voiceStatus)}</div>}
     <form className="composer" onSubmit={event => { event.preventDefault(); submit() }}>
+      {selectedFilms.length > 0 && <FilmChips films={selectedFilms} onRemove={(event, film) => {
+        const button = event.currentTarget
+        const next = button.nextElementSibling || button.previousElementSibling || textarea.current
+        next?.focus({ preventScroll: next === textarea.current })
+        toggleChatFilm(film)
+      }} />}
+      {selectedFilms.length >= maxChatFilms && <p className="film-chip-limit" role="status">{t('Up to {count} films per message', { count: maxChatFilms })}</p>}
       <label htmlFor="chat-prompt" className="sr-only">{t('Movie request')}</label>
       <textarea ref={textarea} value={draft} id="chat-prompt" maxLength={1600}
-        placeholder={t(active ? 'Ask for more movies or narrow your picks…' : 'Describe a mood, a movie you love, or what you want to watch…')}
+        placeholder={t(placeholder)}
         onChange={event => setDraft(event.target.value)} rows={1}
         onKeyDown={event => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
@@ -116,8 +150,8 @@ const progress = {
   ratings: 'Loading film ratings'
 }
 
-export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, error, onFocusRef, onMore, open }) {
-  const { t } = useLanguage()
+export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, error, onFocusRef, onMore, open, selectedFilms, toggleChatFilm }) {
+  const { locale, t } = useLanguage()
   const savedMessages = thread?.messages || []
   const messages = pending?.reply ? [...savedMessages, pending.reply] : savedMessages
   const busy = Boolean(pending)
@@ -174,29 +208,47 @@ export function Chat({ thread, pending, draft, setDraft, submit, retry, stop, er
     return () => cancelAnimationFrame(frame)
   }, [active, turn, last, busy, pending?.stage, error])
 
-  const composer = <Composer draft={draft} setDraft={setDraft} onSend={submit} stop={stop} busy={busy} onFocusRef={onFocusRef} active={active} />
+  function renderFilmAction(movie) {
+    const selected = selectedFilms.some(film => film.id === movie.id)
+    const Icon = selected ? Check : MessageSquarePlus
+    const label = t('Add to chat')
+    const title = movieTitle(movie, locale)
+    return <button type="button" className="film-chat-action" aria-label={`${label} · ${title}`} aria-pressed={selected}
+      disabled={!selected && selectedFilms.length >= maxChatFilms} onClick={() => toggleChatFilm(movie)}>
+      <Icon size={15} aria-hidden="true" /> {label}
+    </button>
+  }
+
+  const status = progress[pending?.stage] || (latestPrompt?.films?.length ? 'Looking at the selected films' : 'Curating your film recommendations')
+  const composer = <Composer draft={draft} setDraft={setDraft} onSend={submit} stop={stop} busy={busy} onFocusRef={onFocusRef} active={active}
+    selectedFilms={selectedFilms} toggleChatFilm={toggleChatFilm} />
   return active ? <div className="content chat-content">
     <h1 className="sr-only">{t('Movie recommendation chat')}</h1>
     <div className="conversation" aria-label={t('Movie conversation')}>
       {messages.map((message, index) => message.role === 'user'
-        ? <div className="user-turn" key={message.id} ref={message === latestPrompt ? lastPrompt : undefined}><p>{message.display ? t('Show me more picks') : message.text}</p></div>
+        ? <div className="user-turn" key={message.id} ref={message === latestPrompt ? lastPrompt : undefined}>
+          <div className="user-message">
+            {message.films?.length > 0 && <FilmChips films={message.films} open={open} />}
+            <p>{message.display ? t('Show me more picks') : message.text}</p>
+          </div>
+        </div>
         : <section className="assistant-turn" key={message.id} ref={index === messages.length - 1 ? lastReply : undefined} aria-label={t('FeelINFilm response')}>
           <div className="assistant-identity" title={message.model}><span><FilmGuideIcon /></span> {t(message.source === 'preview' ? 'Saved preview reply' : 'FeelINFilm')}</div>
           <p className="assistant-copy" lang={message.locale}>{message.text}</p>
           {message.awardSource && <a className="text-link award-source" href={message.awardSource} {...linkOut}>{t('Check the official Academy results')}</a>}
           <MovieShelf movies={message.movies || []} heading={message.movies?.length
             ? (t(message.source === 'academy' ? 'Oscar results' : 'Your recommendations')) : ''}
-            sortEnabled withReason reasonLocale={message.locale} eager={index === messages.length - 1} open={open} />
+            sortEnabled withReason reasonLocale={message.locale} eager={index === messages.length - 1} open={open} renderFilmAction={renderFilmAction} />
           {message === pending?.reply && <p className="chat-progress" role="status">
             {t(pending.stage === 'ratings' ? 'Loading film ratings…' : 'Verifying more film matches…')}
           </p>}
-          {index === messages.length - 1 && !busy && message.source !== 'academy' && ((message.movies?.length || 0) > 0 || message.followUps?.length > 0) &&
+          {index === messages.length - 1 && !busy && !selectedFilms.length && message.source !== 'academy' && ((message.movies?.length || 0) > 0 || message.followUps?.length > 0) &&
             <div className="followups">
               {message.movies?.length > 0 && <button className="prompt-chip more-picks" onClick={onMore}><Plus size={16} /> {t('More picks')}</button>}
               {message.followUps?.map((text, index) => <button key={`${index}-${text}`} className="prompt-chip" lang={message.locale} onClick={() => submit(text)}>{text}</button>)}
             </div>}
         </section>)}
-      {busy && !pending.reply && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {t(progress[pending.stage] || 'Curating your film recommendations')}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
+      {busy && !pending.reply && <div ref={turnStatus} className="assistant-identity thinking" role="status"><span><FilmGuideIcon /></span> {t(status)}<span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div>}
       {error && <div ref={turnStatus} className="chat-error" role="alert"><p>{error}</p><button className="button secondary" onClick={retry}>{t('Try again')}</button></div>}
     </div>
     <div className="sticky-composer" ref={composerArea}>{composer}</div>

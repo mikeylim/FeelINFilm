@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Trophy } from 'lucide-react'
 import { awardLabel, genreLabel, locales } from '../shared/locale.js'
 import { useLanguage } from './Language'
-import { PersonalRatingSummary } from './PersonalRating'
+import { PersonalRatingBadge } from './PersonalRating'
 import { filmPath, isStarRating, languageName, linkOut, movieTitle, movieYear, parseCalendarDate, runtimeText } from './utils'
 import { WatchDateDialog } from './WatchDateDialog'
 import { useWatchlist } from './WatchlistState'
@@ -96,7 +96,7 @@ export function WatchedButton({ movie, overlay = false, removeDirectly = false }
       {!overlay && t('Already watched')}
     </button>
     {editor && entry && <WatchDateDialog movie={entry} onClose={() => setEditor(null)}
-      newlyMarked={editor === 'new'} allowRemove={editor === 'edit'} />}
+      allowRemove={editor === 'edit'} />}
   </>
 }
 
@@ -146,8 +146,12 @@ function prepareTitleReveal(event) {
   else link.removeAttribute('title')
 }
 
-export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryDate, onEditWatchDate }) {
+export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryDate, onEditWatchDate, action }) {
   const { locale, t } = useLanguage()
+  const { watchedById } = useWatchlist()
+  const rating = watchedById.get(movie.id)?.starRating
+  const rated = isStarRating(rating)
+  const ratingId = useId()
   const title = movieTitle(movie, locale)
   const facts = [movieYear(movie), runtimeText(movie.runtime, locale), genreLabel(movie.genres?.[0], locale) || languageName(movie.language, locale)].filter(Boolean)
   const timestamp = entryDate && movie[entryDate.field]
@@ -156,8 +160,10 @@ export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryD
   const viewingDate = watchedOn && listDates[locale].viewing.format(watchedOn)
   return <article className="movie-card">
     <div className="poster-frame">
-      <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))} aria-label={t('Open {title}', { title })}>
+      <a className="poster-link" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}
+        aria-label={t('Open {title}', { title })} aria-describedby={rated ? ratingId : undefined}>
         <Poster movie={movie} eager={eager} />
+        {rated && <PersonalRatingBadge title={title} rating={rating} id={ratingId} />}
       </a>
       <div className="movie-actions">
         <WatchedButton movie={movie} overlay removeDirectly={Boolean(onEditWatchDate)} />
@@ -168,7 +174,6 @@ export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryD
       onPointerEnter={event => { if (event.pointerType !== 'touch') prepareTitleReveal(event) }} onFocus={prepareTitleReveal}>
       <span className="movie-title-text" dir="auto">{title}</span>
     </a>
-    <PersonalRatingSummary movie={movie} showLabel={!onEditWatchDate} />
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
     {actionDate && <p className="movie-list-date">{t(entryDate.label)} <time dateTime={timestamp}>{actionDate}</time></p>}
     {onEditWatchDate && <button type="button" className="watch-date-button"
@@ -178,6 +183,7 @@ export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryD
       <span>{viewingDate ? <>{t('Watched on')} <time dateTime={movie.watchedOn}>{viewingDate}</time></> : t('Set date watched')}</span>
     </button>}
     <Ratings movie={movie} />
+    {action}
     {movie.oscarWins?.length > 0 && <OscarWins wins={movie.oscarWins} />}
     {withReason && movie.reason && <p className="movie-reason" lang={reasonLocale}>{movie.reason}</p>}
   </article>
@@ -216,7 +222,7 @@ function sortMovies(movies, choice, descending, locale) {
     }).map(({ movie }) => movie)
 }
 
-export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, reasonLocale, eager, entryDate, onEditWatchDate, defaultOrder = 'Best match' }) {
+export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, reasonLocale, eager, entryDate, onEditWatchDate, defaultOrder = 'Best match', renderFilmAction }) {
   const { locale, t } = useLanguage()
   const list = useRef(null)
   const [sort, setSort] = useState('match')
@@ -290,7 +296,8 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
     </div>
     <div className={grid ? 'movie-grid' : 'movie-carousel'} ref={list}>
       {ordered.map((movie, index) => <MovieCard key={movie.id} movie={movie} open={open}
-        withReason={withReason} reasonLocale={reasonLocale} eager={eager && index < 5} entryDate={entryDate} onEditWatchDate={onEditWatchDate} />)}
+        withReason={withReason} reasonLocale={reasonLocale} eager={eager && index < 5} entryDate={entryDate}
+        onEditWatchDate={onEditWatchDate} action={renderFilmAction?.(movie)} />)}
     </div>
   </section>
 }

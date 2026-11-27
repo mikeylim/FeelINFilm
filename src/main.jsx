@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Bookmark, Eye, Film, History, Info, Menu, Moon, Plus, Search, Sun, X } from 'lucide-react'
+import { normalizeChatFilms } from '../shared/chat-films.js'
 import { locales } from '../shared/locale.js'
 import { LanguageProvider, useLanguage } from './Language'
 import { Chat } from './Chat'
@@ -64,7 +65,7 @@ function About({ providers, onClose }) {
       <div><dt>{t('OMDb ratings and awards')}</dt><dd>{providers.omdb ? t('Configured') : t('Optional key')}</dd></div>
       <div><dt>{t('MDBList scores')}</dt><dd>{providers.mdblist ? t('Configured') : t('Optional key')}</dd></div>
     </dl>}
-    <p>{t('Chats, saved films, and watched films are stored in this browser. Gemini receives the current conversation and, when watched films are excluded, recent watched titles.')}</p>
+    <p>{t('Chats, saved films, and watched films are stored in this browser. Gemini receives the current conversation, films added to chat, and recent watched titles when you exclude watched films.')}</p>
     <div className="credits">
       <a href="https://www.themoviedb.org" {...linkOut}><img width="49" src="/tmdb.svg" alt="TMDB" /></a>
       <p>{t('This product uses the TMDB API but is not endorsed or certified by TMDB.')}</p>
@@ -99,6 +100,7 @@ function App() {
     return replies.length && replies.every(message => message.source === 'preview') ? '' : id
   })
   const [draft, setDraft] = useState('')
+  const [selectedFilms, setSelectedFilms] = useState([])
   const [pending, setPending] = useState({})
   const [errors, setErrors] = useState({})
   const [providers, setProviders] = useState(null)
@@ -174,6 +176,7 @@ function App() {
   function pickChat(id) {
     setActiveId(id)
     setDraft('')
+    setSelectedFilms([])
     navigate('/')
     window.scrollTo(0, 0)
   }
@@ -189,7 +192,16 @@ function App() {
     if (id === activeId) {
       setActiveId('')
       setDraft('')
+      setSelectedFilms([])
     }
+  }
+
+  function toggleChatFilm(movie) {
+    setSelectedFilms(films => films.some(film => film.id === movie.id)
+      ? films.filter(film => film.id !== movie.id)
+      : normalizeChatFilms([...films, {
+        id: movie.id, title: movieTitle(movie, locale), year: Number(movieYear(movie)), runtime: movie.runtime
+      }]))
   }
 
   async function sendTurn(id, messages, excluded) {
@@ -205,6 +217,7 @@ function App() {
     if (turns[0] !== liveHistory[0]) turns.unshift(liveHistory[0])
     const context = turns.map(message => ({
       role: message.role,
+      films: message.films,
       text: message.role === 'assistant' && message.movies?.length ?
         `${message.text}\nFilms recommended: ${message.movies.map(movie => `${movie.title} (${movieYear(movie) || 'year unknown'})`).join(', ')}`.slice(0, 1600) : message.text
     }))
@@ -256,12 +269,14 @@ function App() {
     const previous = current?.messages || []
     // An unsent server response has no model turn. A new prompt replaces the failed turn.
     const completed = previous.at(-1)?.role === 'user' ? previous.slice(0, -1) : previous
-    const messages = [...completed, { id: crypto.randomUUID(), role: 'user', text: prompt, display: more ? 'Show me more picks' : undefined }]
+    const films = !fresh && selectedFilms.length ? selectedFilms : undefined
+    const messages = [...completed, { id: crypto.randomUUID(), role: 'user', text: prompt, films, display: more ? 'Show me more picks' : undefined }]
     const nextThread = { id, title: current?.title || prompt, messages }
     const exclude = more ? previouslyShown(completed) : []
     setThreads(items => [nextThread, ...items.filter(item => item.id !== id)].slice(0, 15))
     setActiveId(id)
     setDraft('')
+    setSelectedFilms([])
     navigate('/')
     sendTurn(id, messages, exclude)
   }
@@ -309,6 +324,7 @@ function App() {
             open={open} /> :
             isWatchlist ? <Watchlist key={watchedTab ? 'watched' : 'saved'} watched={watchedTab} open={open} /> :
             <Chat thread={thread} pending={pending[activeId]} draft={draft} setDraft={setDraft} submit={submit}
+              selectedFilms={selectedFilms} toggleChatFilm={toggleChatFilm}
               retry={retry} stop={() => requests.current.get(activeId)?.abort()} error={chatError} onFocusRef={focusComposer}
               onMore={() => submit(t(morePrompt), { more: true })} open={open} />}
       </main>

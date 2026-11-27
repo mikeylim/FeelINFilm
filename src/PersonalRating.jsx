@@ -2,7 +2,7 @@ import React, { useId, useRef, useState } from 'react'
 import { Star, X } from 'lucide-react'
 import { locales } from '../shared/locale.js'
 import { useLanguage } from './Language'
-import { isStarRating, maxStarRating, movieTitle, starRatingStep } from './utils'
+import { isStarRating, maxStarRating, starRatingStep } from './utils'
 import { useWatchlist } from './WatchlistState'
 
 const stars = Array.from({ length: maxStarRating }, (_, index) => index + 1)
@@ -52,18 +52,15 @@ export function PersonalRatingEditor({ movie, rating }) {
   </div>
 }
 
-export function PersonalRatingSummary({ movie, showLabel }) {
+export function PersonalRatingBadge({ title, rating, id }) {
   const { locale, t } = useLanguage()
-  const { watchedById } = useWatchlist()
-  const rating = watchedById.get(movie.id)?.starRating
-  if (!isStarRating(rating)) return null
   const score = ratingFormats[locale].format(rating)
-  return <span className="personal-rating-summary">
+  const description = t('Your rating for {title}, {score}', {
+    title, score: t('{score} out of {max}', { score, max: maxStarRating })
+  })
+  return <span className="personal-rating-badge" title={description}>
     <Star size={14} fill="currentColor" aria-hidden="true" />
     <span aria-hidden="true">{score}</span>
-    {showLabel && <span className="personal-rating-caption" aria-hidden="true">{t('Your rating')}</span>}
-    <span className="sr-only">{t('Your rating for {title}, {score}', {
-      title: movieTitle(movie, locale), score: t('{score} out of {max}', { score, max: maxStarRating })
-    })}</span>
+    <span className="sr-only" id={id}>{description}</span>
   </span>
 }
