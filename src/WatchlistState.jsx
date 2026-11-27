@@ -103,10 +103,15 @@ export function WatchlistProvider({ children }) {
       ? { ...movie, watchedOn } : movie))
   }, [setWatchedMovies])
 
-  const setStarRating = useCallback((id, starRating) => {
+  const setStarRating = useCallback((movie, starRating) => {
     if (starRating !== undefined && !isStarRating(starRating)) return
-    setWatchedMovies(current => current.map(movie => movie.id === id && movie.starRating !== starRating
-      ? { ...movie, starRating } : movie))
+    const markedWatchedAt = new Date().toISOString()
+    setWatchedMovies(current => {
+      const existing = current.find(entry => entry.id === movie.id)
+      if (existing?.starRating === starRating) return current
+      if (!existing) return [{ ...filmCard(movie), starRating, markedWatchedAt }, ...current]
+      return current.map(entry => entry === existing ? { ...entry, starRating } : entry)
+    })
   }, [setWatchedMovies])
 
   const refresh = useCallback(updates => {

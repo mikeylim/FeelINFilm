@@ -64,13 +64,13 @@ export function FilmDetail({ id, back, open, onSimilar, setTitle }) {
         {film.tagline && <p className="tagline">“{film.tagline}”</p>}
         <div className="detail-actions">
           {film.trailer && <a className="button primary" href={film.trailer} {...linkOut}><Play size={15} /> {t('Watch trailer')}</a>}
-          <WatchlistButton movie={film} />
           <WatchedButton movie={film} />
+          <WatchlistButton movie={film} />
           <button className="button detail-secondary" onClick={() => onSimilar(film)}><Clapperboard size={16} /> {t('Ask for similar films')}</button>
         </div>
       </div>
     </section>
-    {watchedEntry && <PersonalRatingEditor movie={film} rating={watchedEntry.starRating} />}
+    <PersonalRatingEditor movie={film} rating={watchedEntry?.starRating} />
     <section className="detail-section rating-section">
       <h2>{t('Ratings')}</h2>
       <Ratings movie={film} detailed />

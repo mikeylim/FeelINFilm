@@ -195,19 +195,25 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .more-picks { color: var(--accent); }
 
 .movie-shelf { min-width: 0; }
-.shelf-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.shelf-heading { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .shelf-heading h2, .detail-section h2, .empty-state h2 {
   font-family: var(--display); font-size: 2.15rem; font-weight: 400; line-height: 1.07; letter-spacing: -.012em;
 }
 .shelf-heading p { color: var(--muted); font-size: .9rem; margin-top: 5px; }
 .shelf-actions, .carousel-controls { display: flex; align-items: center; gap: 7px; }
+.shelf-actions { min-width: 0; max-width: 100%; margin-inline-start: auto; flex-wrap: wrap; justify-content: flex-end; }
 .carousel-controls .icon-button { background: var(--surface); border-color: var(--line); border-radius: 50%; }
-.sort-control { position: relative; }
+.sort-controls { display: flex; gap: 6px; min-width: 0; max-width: 100%; }
+.sort-control { position: relative; min-width: 0; }
 .sort-control > svg { pointer-events: none; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); color: var(--muted); }
-.sort-control select {
-  appearance: none; color: var(--text); border: 1px solid var(--line); background: var(--surface);
-  border-radius: 8px; min-height: 36px; padding: 0 27px 0 10px; font-size: .82rem; cursor: pointer;
+.sort-control select, .sort-direction {
+  color: var(--text); border: 1px solid var(--line); background: var(--surface);
+  border-radius: 8px; min-height: 36px; font-size: .82rem; cursor: pointer;
 }
+.sort-control select { appearance: none; max-width: 100%; padding: 0 27px 0 10px; text-overflow: ellipsis; }
+.sort-direction { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; white-space: nowrap; }
+.sort-direction svg { color: var(--accent); }
+.sort-direction:hover { border-color: var(--quiet); background: var(--raised); }
 .movie-carousel, .movie-grid { --card-gap: 15px; gap: var(--card-gap); display: grid; min-width: 0; }
 .movie-carousel {
   grid-auto-flow: column; grid-auto-columns: calc((100% - var(--card-gap) * 4) / 5);
@@ -235,8 +241,15 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
 .poster-link:hover img { transform: scale(1.045); }
 .poster-fallback { color: var(--muted); background: radial-gradient(ellipse at 65% 20%, var(--raised), var(--surface)); width: 100%; height: 100%; display: grid; place-content: center; text-align: center; gap: 11px; padding: 12px; font-size: .9rem; }
 .poster-fallback svg { margin: 0 auto; }
-.movie-title { display: block; overflow-wrap: anywhere; margin: 9px 0 2px; font-weight: 650; line-height: 1.28; font-size: .965rem; }
-.movie-title:hover, .text-link:hover { color: var(--accent-hover); }
+.movie-title { display: block; overflow: hidden; margin: 9px 0 2px; font-weight: 650; line-height: 1.28; font-size: .965rem; }
+.movie-title-text { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; transform: translateX(0); }
+.movie-title:hover, .movie-title:focus-visible, .text-link:hover { color: var(--accent-hover); }
+@media (prefers-reduced-motion: no-preference) {
+  .movie-title[data-title-overflow]:is(:hover, :focus-visible) .movie-title-text {
+    overflow: visible; text-overflow: clip; transform: translateX(var(--title-offset));
+    transition: transform var(--title-reveal-duration) linear .22s;
+  }
+}
 .movie-facts, .movie-list-date { color: var(--muted); font-size: .79rem; line-height: 1.4; }
 .movie-list-date { margin-top: 3px; }
 .watch-date-button {
@@ -463,8 +476,6 @@ li:hover .history-remove, li:focus-within .history-remove { opacity: 1; }
   .movie-carousel { grid-auto-columns: 43%; }
   .movie-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shelf-heading { align-items: center; }
-  .shelf-actions { flex-wrap: wrap; justify-content: flex-end; }
-  .assistant-turn .shelf-heading { flex-wrap: wrap; }
   .detail-hero { align-items: flex-start; padding: 15px; min-height: auto; gap: 12px; }
   .detail-hero h1 { font-size: 2.9rem; }
   .detail-poster { width: 29%; }

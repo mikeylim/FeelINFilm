@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Trophy } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpRight, Bookmark, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, Film, Trophy } from 'lucide-react'
 import { awardLabel, genreLabel, locales } from '../shared/locale.js'
 import { useLanguage } from './Language'
 import { PersonalRatingSummary } from './PersonalRating'
@@ -129,6 +129,23 @@ function formatListDate(timestamp, includeYear, locale) {
   return formatter.format(date)
 }
 
+function prepareTitleReveal(event) {
+  const link = event.currentTarget
+  const text = link.firstElementChild
+  const overflow = text.scrollWidth - text.clientWidth
+  link.toggleAttribute('data-title-overflow', overflow > 0)
+  if (overflow <= 0) {
+    link.removeAttribute('title')
+    return
+  }
+
+  const direction = getComputedStyle(text).direction === 'rtl' ? 1 : -1
+  link.style.setProperty('--title-offset', `${direction * overflow}px`)
+  link.style.setProperty('--title-reveal-duration', `${Math.max(700, overflow * 16)}ms`)
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) link.title = text.textContent
+  else link.removeAttribute('title')
+}
+
 export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryDate, onEditWatchDate }) {
   const { locale, t } = useLanguage()
   const title = movieTitle(movie, locale)
@@ -147,7 +164,10 @@ export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryD
         <WatchlistButton movie={movie} overlay />
       </div>
     </div>
-    <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}>{title}</a>
+    <a className="movie-title" href={filmPath(movie)} onClick={event => open(event, filmPath(movie))}
+      onPointerEnter={event => { if (event.pointerType !== 'touch') prepareTitleReveal(event) }} onFocus={prepareTitleReveal}>
+      <span className="movie-title-text" dir="auto">{title}</span>
+    </a>
     <PersonalRatingSummary movie={movie} showLabel={!onEditWatchDate} />
     {facts.length > 0 && <p className="movie-facts">{facts.join(' · ')}</p>}
     {actionDate && <p className="movie-list-date">{t(entryDate.label)} <time dateTime={timestamp}>{actionDate}</time></p>}
@@ -163,37 +183,57 @@ export function MovieCard({ movie, open, withReason, reasonLocale, eager, entryD
   </article>
 }
 
-const sortChoices = [
-  ['match', 'Best match'], ['imdb', 'Highest IMDb'], ['rt', 'Highest Tomatometer'], ['letterboxd', 'Highest Letterboxd'],
-  ['recent', 'Newest release'], ['oldest', 'Oldest release'], ['short', 'Shortest runtime'], ['title', 'Title A–Z']
-]
-const positive = value => Number.parseFloat(value) || 0
-const dateWatched = movie => parseCalendarDate(movie.watchedOn) ? movie.watchedOn : ''
-const personalScore = ({ starRating }) => isStarRating(starRating) ? starRating : 0
-function sortMovies(movies, sort, locale) {
-  const compare = {
-    imdb: (a, b) => positive(b.ratings?.imdb) - positive(a.ratings?.imdb),
-    rt: (a, b) => positive(b.ratings?.rt) - positive(a.ratings?.rt),
-    letterboxd: (a, b) => positive(b.ratings?.letterboxd) - positive(a.ratings?.letterboxd),
-    recent: (a, b) => (b.date || '').localeCompare(a.date || ''),
-    oldest: (a, b) => (a.date || '9999').localeCompare(b.date || '9999'),
-    watchedOn: (a, b) => dateWatched(b).localeCompare(dateWatched(a)),
-    personalRating: (a, b) => personalScore(b) - personalScore(a),
-    short: (a, b) => (a.runtime || Infinity) - (b.runtime || Infinity),
-    title: (a, b) => movieTitle(a, locale).localeCompare(movieTitle(b, locale), locale)
-  }[sort]
-  return compare ? [...movies].sort(compare) : movies
+const dateOrder = { descending: true, directions: ['Oldest first', 'Newest first'] }
+const ratingOrder = { descending: true, directions: ['Low to high', 'High to low'] }
+const finiteValue = value => Number.isFinite(value) ? value : null
+const dateValue = value => typeof value === 'string' ? finiteValue(Date.parse(value)) : null
+const ratingValue = value => finiteValue(Number.parseFloat(value))
+
+const watchedSorts = {
+  watchedOn: { label: 'Date watched', ...dateOrder, value: movie => parseCalendarDate(movie.watchedOn)?.getTime() },
+  personalRating: { label: 'My rating', ...ratingOrder, value: movie => isStarRating(movie.starRating) ? movie.starRating : null }
+}
+const commonSorts = {
+  imdb: { label: 'IMDb rating', ...ratingOrder, value: movie => ratingValue(movie.ratings?.imdb) },
+  rt: { label: 'Tomatometer', ...ratingOrder, value: movie => ratingValue(movie.ratings?.rt) },
+  letterboxd: { label: 'Letterboxd rating', ...ratingOrder, value: movie => ratingValue(movie.ratings?.letterboxd) },
+  release: { label: 'Release date', ...dateOrder, value: movie => dateValue(movie.date) },
+  runtime: { label: 'Runtime', directions: ['Shortest first', 'Longest first'], value: movie => movie.runtime > 0 ? finiteValue(Number(movie.runtime)) : null },
+  title: { label: 'Title', directions: ['A–Z', 'Z–A'], value: (movie, locale) => movieTitle(movie, locale) || null }
+}
+
+function sortMovies(movies, choice, descending, locale) {
+  if (!choice.value) return descending ? [...movies].reverse() : movies
+
+  const direction = descending ? -1 : 1
+  return movies.map(movie => ({ movie, value: choice.value(movie, locale) }))
+    .sort((a, b) => {
+      // Missing values go last in either direction. Equal values keep their input order.
+      if (a.value == null) return b.value == null ? 0 : 1
+      if (b.value == null) return -1
+      const difference = typeof a.value === 'string' ? a.value.localeCompare(b.value, locale) : a.value - b.value
+      return direction * difference
+    }).map(({ movie }) => movie)
 }
 
 export function MovieShelf({ movies, open, heading, description, sortEnabled, grid, withReason, reasonLocale, eager, entryDate, onEditWatchDate, defaultOrder = 'Best match' }) {
   const { locale, t } = useLanguage()
   const list = useRef(null)
   const [sort, setSort] = useState('match')
+  const [reversed, setReversed] = useState(false)
   const [bounds, setBounds] = useState({ previous: false, next: false })
-  const ordered = sortMovies(movies, sort, locale)
-  const choices = onEditWatchDate
-    ? [sortChoices[0], ['watchedOn', 'Date watched (newest)'], ['personalRating', 'My rating'], ...sortChoices.slice(1)]
-    : sortChoices
+  const choices = {
+    match: entryDate
+      ? { label: defaultOrder, ...dateOrder, value: movie => dateValue(movie[entryDate.field]) }
+      : { label: defaultOrder, directions: ['Original order', 'Reverse order'] },
+    ...(onEditWatchDate ? watchedSorts : {}),
+    ...commonSorts
+  }
+  const choice = choices[sort]
+  const descending = Boolean(choice.descending) !== reversed
+  const directionLabel = t(choice.directions[descending ? 1 : 0])
+  const DirectionIcon = descending ? ArrowDown : ArrowUp
+  const ordered = sort === 'match' && !reversed ? movies : sortMovies(movies, choice, descending, locale)
 
   useEffect(() => {
     const element = list.current
@@ -227,14 +267,21 @@ export function MovieShelf({ movies, open, heading, description, sortEnabled, gr
         {description && <p>{description}</p>}
       </div>
       <div className="shelf-actions">
-        {sortEnabled && (movies.length > 1 || entryDate) && <label className="sort-control">
-          <span className="sr-only">{t('Sort movies')}</span>
-          <select value={sort} onChange={event => {
-            setSort(event.target.value)
-            list.current?.scrollTo(0, 0)
-          }}>{choices.map(([value, label]) => <option key={value} value={value}>{t(value === 'match' ? defaultOrder : label)}</option>)}</select>
-          <ChevronDown size={14} />
-        </label>}
+        {sortEnabled && (movies.length > 1 || entryDate) && <div className="sort-controls">
+          <label className="sort-control">
+            <span className="sr-only">{t('Sort movies')}</span>
+            <select value={sort} onChange={event => {
+              setSort(event.target.value)
+              setReversed(false)
+              list.current?.scrollTo(0, 0)
+            }}>{Object.entries(choices).map(([value, { label }]) => <option key={value} value={value}>{t(label)}</option>)}</select>
+            <ChevronDown size={14} />
+          </label>
+          <button className="sort-direction" type="button" aria-label={t('Reverse sort direction ({direction})', { direction: directionLabel })}
+            onClick={() => { setReversed(value => !value); list.current?.scrollTo(0, 0) }}>
+            <DirectionIcon size={14} aria-hidden="true" /> {directionLabel}
+          </button>
+        </div>}
         {!grid && (bounds.previous || bounds.next) && <div className="carousel-controls">
           <button className="icon-button" type="button" onClick={() => scroll(-1)} disabled={!bounds.previous} aria-label={t('Previous films')}><ChevronLeft size={18} /></button>
           <button className="icon-button" type="button" onClick={() => scroll(1)} disabled={!bounds.next} aria-label={t('More films')}><ChevronRight size={18} /></button>

@@ -23,7 +23,7 @@ export function PersonalRatingEditor({ movie, rating }) {
   function clear() {
     choices.current?.querySelector('input:checked')?.focus()
     setPreview(null)
-    setStarRating(movie.id, undefined)
+    setStarRating(movie, undefined)
   }
 
   return <div className="personal-rating-editor">
@@ -42,7 +42,7 @@ export function PersonalRatingEditor({ movie, rating }) {
             onPointerEnter={event => { if (event.pointerType === 'mouse') setPreview(score) }}>
             <input className="sr-only" type="radio" name={name} value={score}
               aria-label={t('{score} out of {max}', { score: format(score), max: maxStarRating })}
-              checked={rating === score} onChange={() => { setPreview(null); setStarRating(movie.id, score) }} />
+              checked={rating === score} onChange={() => { setPreview(null); setStarRating(movie, score) }} />
           </label>)}
         </div>)}
       </div>

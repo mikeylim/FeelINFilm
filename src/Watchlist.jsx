@@ -24,7 +24,11 @@ export function Watchlist({ watched, open }) {
   const input = useRef(null)
   const editing = watched && watchedById.get(editingId)
   const entryDate = watched ? { field: 'markedWatchedAt', label: 'Watched status', includeYear: true } : { field: 'savedAt', label: 'Saved' }
-  const actionTime = movie => Date.parse(movie[entryDate.field]) || 0
+  const actionTime = movie => {
+    const timestamp = movie[entryDate.field]
+    const time = typeof timestamp === 'string' ? Date.parse(timestamp) : NaN
+    return Number.isFinite(time) ? time : -Infinity
+  }
   const movies = watched ? watchedMovies : savedMovies
   const title = searchableTitle(query)
   const matches = movies.filter(movie => !title || [movieTitle(movie, locale), ...Object.values(movie.titles || {})]
@@ -44,8 +48,8 @@ export function Watchlist({ watched, open }) {
         ? (movies.length === 1 ? '{count} film marked as watched' : '{count} films marked as watched')
         : (movies.length === 1 ? '{count} film saved on this device' : '{count} films saved on this device'), { count: movies.length })}</p>}
       <nav className="watchlist-tabs" aria-label={t('Your film lists')}>
-        <a href={savedPath} aria-current={!watched ? 'page' : undefined} onClick={event => open(event, savedPath)}>{t('Watchlist tabs saved')}</a>
         <a href={watchedPath} aria-current={watched ? 'page' : undefined} onClick={event => open(event, watchedPath)}>{t('Watched')}</a>
+        <a href={savedPath} aria-current={!watched ? 'page' : undefined} onClick={event => open(event, savedPath)}>{t('Watchlist tabs saved')}</a>
       </nav>
       {movies.length > 0 && <div className="lookup-form" role="search" aria-label={t(watched ? 'Watched films' : 'Watchlist')}>
         <Search size={20} strokeWidth={1.75} aria-hidden="true" />
@@ -55,7 +59,7 @@ export function Watchlist({ watched, open }) {
       </div>}
     </header>
     <MovieShelf movies={matches} open={open}
-      heading={t(watched ? 'Watched films' : 'Saved films')} defaultOrder={watched ? 'Recently added' : 'Recently saved'}
+      heading={t(watched ? 'Watched films' : 'Saved films')} defaultOrder={watched ? 'Date added' : 'Date saved'}
       entryDate={entryDate} onEditWatchDate={watched ? setEditingId : undefined} grid sortEnabled eager />
     {movies.length > 0 && !matches.length && <div className="empty-state">
       <h2>{t('No matching films')}</h2>

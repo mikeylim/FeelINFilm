@@ -33,8 +33,8 @@ function Sidebar({ path, open, close, expanded, newChat, threads, active, pick, 
       <nav className="sidebar-nav">
         <a className={lookup || watchlist ? 'nav-item' : 'nav-item selected'} aria-current={!lookup && !watchlist ? 'page' : undefined} href="/" onClick={event => open(event, '/')}><FilmGuideIcon /> {t('AI movie chat')}</a>
         <a className={lookup ? 'nav-item selected' : 'nav-item'} aria-current={lookup ? 'page' : undefined} href="/lookup" onClick={event => open(event, '/lookup')}><Search size={18} /> {t('Movie lookup')}</a>
-        <a className={saved ? 'nav-item selected' : 'nav-item'} aria-current={saved ? 'page' : undefined} href="/watchlist" onClick={event => open(event, '/watchlist')}><Bookmark size={18} /> {t('Watchlist')}</a>
         <a className={watched ? 'nav-item selected' : 'nav-item'} aria-current={watched ? 'page' : undefined} href={watchedPath} onClick={event => open(event, watchedPath)}><Eye size={18} /> {t('Watched')}</a>
+        <a className={saved ? 'nav-item selected' : 'nav-item'} aria-current={saved ? 'page' : undefined} href="/watchlist" onClick={event => open(event, '/watchlist')}><Bookmark size={18} /> {t('Watchlist')}</a>
       </nav>
       <section className="sidebar-history" aria-label={t('Recent chats')}>
         <h2>{t('Recent chats')}</h2>
